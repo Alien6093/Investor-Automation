@@ -44,19 +44,34 @@ SOURCES = [
     {"name": "TechCrunch Venture", "type": "wordpress", "base": "https://techcrunch.com", "params": {"categories": "577030455"}},
     {"name": "Crunchbase News", "type": "wordpress", "base": "https://news.crunchbase.com"},
     {"name": "e27", "type": "wordpress", "base": "https://e27.co"},
-    {"name": "Medianama", "type": "wordpress", "base": "https://www.medianama.com"},
 ]
 
-# Regex filters for Funding, VCs / funds, Corporate VCs, Accelerators, and Investment news
-KEYWORDS = re.compile(
-    r'\b(funding|funded|raises|raised|raising|fundraise|fundraising|pre-seed|seed round|seed funding|'
-    r'series [a-f]|bridge round|venture capital|venture capitalist|vc firm|vc fund|venture fund|'
-    r'corporate vc|corporate venture|cvc|flipkart ventures|angel investor|angel network|angel round|'
-    r'family office|limited partners?|first close|final close|launches fund|new fund|maiden fund|'
-    r'fund size|corpus|accelerator|incubator|cohort|demo day|startup program|startup programme|'
-    r'y combinator|techstars|backed by|investor|investors|lead investor|valuation|unicorn)\b',
+# Terms that on their own mark an article as funding / VC / accelerator news
+STRONG_KEYWORDS = re.compile(
+    r'\b(funding|fundraise|fundraising|pre-seed|seed round|seed funding|series [a-f]|bridge round|'
+    r'venture capital|venture capitalist|vc firm|vc fund|venture fund|corporate vc|corporate venture|cvc|'
+    r'flipkart ventures|angel investors?|angel network|angel round|family office|limited partners?|'
+    r'first close|final close|launches fund|new fund|maiden fund|fund size|accelerator|incubator|'
+    r'cohort|demo day|startup program|startup programme|y combinator|techstars|lead investor)\b',
     re.IGNORECASE
 )
+
+# Broader terms that only count when the article is not stock-market / public-finance news
+WEAK_KEYWORDS = re.compile(
+    r'\b(funded|raises|raised|raising|raise|backed by|investors?|valuation|unicorn|corpus)\b',
+    re.IGNORECASE
+)
+EXCLUDE_KEYWORDS = re.compile(
+    r'\b(shares?|stocks?|sensex|nifty|dalal street|etfs?|mutual funds?|disinvestment|ipo|listing|'
+    r'dividend|bonds?|q[1-4] results|quarterly results|govt|government)\b',
+    re.IGNORECASE
+)
+
+
+def is_relevant(text):
+    if STRONG_KEYWORDS.search(text):
+        return True
+    return bool(WEAK_KEYWORDS.search(text)) and not EXCLUDE_KEYWORDS.search(text)
 
 GOOGLE_NEWS_TERMS = (
     '(funding OR raises OR investors OR "venture capital" OR accelerator OR incubator '
@@ -68,7 +83,7 @@ def categorize_article(text):
     text_lower = text.lower()
     if any(term in text_lower for term in ["accelerator", "cohort", "demo day", "incubator", "startup program"]):
         return "Accelerator Program"
-    elif any(term in text_lower for term in ["pre-seed", "seed", "series a", "series b", "series c", "raises", "raised", "funding"]):
+    elif re.search(r"pre-seed|seed|series [a-f]|raise|funding|round", text_lower):
         return "Startup Funding"
     elif any(term in text_lower for term in ["venture capital", "vc", "fund", "flipkart ventures", "family office", "angel"]):
         return "VC / Fund News"
@@ -124,37 +139,43 @@ def fetch_rss(session, source, start):
 
 
 def fetch_wordpress(session, source, start):
+    # Query in 2-week windows: some sites reject deep page numbers, so this
+    # keeps every query to a few pages.
     articles = []
-    page = 1
-    while True:
-        params = {
-            "after": start.strftime("%Y-%m-%dT%H:%M:%S"),
-            "per_page": 100,
-            "page": page,
-            "orderby": "date",
-            "order": "desc",
-            "_fields": "date_gmt,link,title,excerpt",
-            **source.get("params", {}),
-        }
-        resp = get(session, f"{source['base']}/wp-json/wp/v2/posts", params=params)
-        if resp is None or resp.status_code != 200:
-            if page == 1:
-                print(f"[{source['name']}] WARNING: WordPress API returned {getattr(resp, 'status_code', 'no response')}")
-            break
-        posts = resp.json()
-        if not posts:
-            break
-        for post in posts:
-            articles.append({
-                "date": datetime.fromisoformat(post["date_gmt"]),
-                "title": clean_text(post["title"]["rendered"]),
-                "summary": clean_text(post.get("excerpt", {}).get("rendered", "")),
-                "link": post["link"],
-            })
-        total_pages = int(resp.headers.get("X-WP-TotalPages", page))
-        if page >= total_pages:
-            break
-        page += 1
+    window_start = start
+    now = datetime.utcnow()
+    while window_start <= now:
+        window_end = window_start + timedelta(days=14)
+        page = 1
+        while True:
+            params = {
+                "after": window_start.strftime("%Y-%m-%dT%H:%M:%S"),
+                "before": window_end.strftime("%Y-%m-%dT%H:%M:%S"),
+                "per_page": 100,
+                "page": page,
+                "orderby": "date",
+                "order": "desc",
+                "_fields": "date_gmt,link,title,excerpt",
+                **source.get("params", {}),
+            }
+            resp = get(session, f"{source['base']}/wp-json/wp/v2/posts", params=params)
+            if resp is None or resp.status_code != 200:
+                print(f"[{source['name']}] WARNING: WordPress API returned "
+                      f"{getattr(resp, 'status_code', 'no response')} for {window_start:%Y-%m-%d} page {page}")
+                break
+            posts = resp.json()
+            for post in posts:
+                articles.append({
+                    "date": datetime.fromisoformat(post["date_gmt"]),
+                    "title": clean_text(post["title"]["rendered"]),
+                    "summary": clean_text(post.get("excerpt", {}).get("rendered", "")),
+                    "link": post["link"],
+                })
+            total_pages = int(resp.headers.get("X-WP-TotalPages", page))
+            if not posts or page >= total_pages:
+                break
+            page += 1
+        window_start = window_end
     return articles
 
 
@@ -213,7 +234,8 @@ def fetch_sitemap(session, source, start):
                 continue
             link = loc.group(1)
             # Pre-filter on the URL slug so only likely-relevant pages are fetched.
-            if not KEYWORDS.search(slug_text(link)):
+            slug = slug_text(link)
+            if not (STRONG_KEYWORDS.search(slug) or WEAK_KEYWORDS.search(slug)):
                 continue
             date = None
             if lastmod:
@@ -325,7 +347,7 @@ def run():
         added = 0
         for article in articles:
             text = f"{article['title']} {article['summary']}"
-            if not KEYWORDS.search(text):
+            if not is_relevant(text):
                 continue
             link = article["link"]
             if not link or link in existing_urls:
