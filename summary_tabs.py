@@ -47,9 +47,34 @@ def _program_names(title):
     return names
 
 
+def dedupe_deals(rows, days=45):
+    """Drop repeat coverage of the same round (same company within `days`), keeping the
+    report that names the most investors. Rows that aren't single deals pass through."""
+    from datetime import datetime, timedelta
+    kept, seen = [], {}
+    for row in sorted(rows, key=lambda r: (r[0], -(len(r[8].split(";")) if len(r) > 8 and r[8] != NOT_FOUND else 0))):
+        company = row[5] if len(row) > 5 else ""
+        if not company:
+            kept.append(row)
+            continue
+        key = _key(company)
+        date = datetime.strptime(row[0][:10], "%Y-%m-%d")
+        prev = seen.get(key)
+        if prev is not None and date - prev[0] <= timedelta(days=days):
+            best = prev[1]
+            # Keep the version that names more investors
+            if row[8] != NOT_FOUND and (best[8] == NOT_FOUND or len(row[8].split(";")) > len(best[8].split(";"))):
+                kept[kept.index(best)] = row
+                seen[key] = (prev[0], row)
+            continue
+        seen[key] = (date, row)
+        kept.append(row)
+    return kept
+
+
 def build_deals_table(rows):
     """One row per single-company deal that names its investors, newest first."""
-    deals = [row for row in rows if len(row) >= 9 and row[5] and row[8] and row[8] != NOT_FOUND]
+    deals = [row for row in dedupe_deals(rows) if len(row) >= 9 and row[5] and row[8] and row[8] != NOT_FOUND]
     deals.sort(key=lambda row: row[0], reverse=True)
     return [[row[0], row[5], row[6], row[7], row[8], row[2], row[1], row[4]] for row in deals]
 

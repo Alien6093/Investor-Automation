@@ -68,13 +68,16 @@ _AMOUNT = re.compile(r"(?:rs\.?|inr|usd|us\$|\$|₹|€|£)\s?[\d.,]+|\b[\d.,]+\
 
 
 def _clean(name):
+    # Drop emoji / symbols around names ("Peak XV Partners 🎉", "Andreessen Horowitz—")
+    name = re.sub(r"^[^\w(]+|[^\w).]+$", "", name.strip())
+    name = re.sub(r"\.\s+(?:The|This|It|We|Our|Th)\b.*$", "", name)
     name = name.strip(" '\"‘’“”.,-–—")
     name = re.sub(r"^(?:and|&)\s+", "", name, flags=re.I)
     for _ in range(2):
         name = _LEADING_JUNK.sub("", name)
     name = re.sub(r"\s+(?:programme|program|accelerator program(?:me)?)$", "", name, flags=re.I)
     # "Startup-community platform D2C Insider" -> "D2C Insider"
-    name = re.sub(r"^.*\b(?:platform|startup|firm|company|brand|maker|provider)s?\s+(?=[A-Z0-9])", "", name)
+    name = re.sub(r"^.*\b(?:platform|startup|firm|company|brand|maker|provider|investor)s?\s+(?=[A-Z0-9])", "", name)
     # Trailing lowercase words: "Bertelsmann India Investments will" -> "Bertelsmann India Investments"
     name = re.sub(r"(?:\s+[a-z][\w-]*)+$", "", name)
     if re.match(r"(?i)(?:at|in|on|for|with|from|by|as|after|during|this|that|these|those|our|their|his|her)\b", name):

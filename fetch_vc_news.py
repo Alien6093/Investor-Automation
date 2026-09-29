@@ -16,7 +16,8 @@ from google.oauth2.service_account import Credentials
 
 from investor_extractor import build_investor_table, extract_investors, INVESTOR_HEADER
 from deal_extractor import extract_deal, is_single_deal
-from summary_tabs import build_deals_table, build_accelerator_table, DEALS_HEADER, ACCELERATOR_HEADER
+from summary_tabs import (build_deals_table, build_accelerator_table, dedupe_deals, DEALS_HEADER,
+                          ACCELERATOR_HEADER, _program_names as program_names)
 
 YC_HEADER = ["Program", "Batch", "Company", "One-liner", "Industry", "Location", "Website", "YC Profile"]
 
@@ -67,10 +68,10 @@ SOURCES = [
     {"name": "Business Standard", "type": "google_news", "site": "business-standard.com"},
     {"name": "DealStreetAsia", "type": "google_news", "site": "dealstreetasia.com"},
     # LinkedIn posts / articles announcing rounds, fund closes and cohorts (indexed by Google News)
-    {"name": "LinkedIn", "type": "google_news", "site": "linkedin.com",
+    {"name": "LinkedIn", "type": "google_news", "site": "linkedin.com", "strict": True,
      "terms": '("raised" OR "funding round" OR "led by" OR "first close" OR "final close" OR cohort OR accelerator)'},
     # Publisher-agnostic searches; the Source column shows the publisher
-    {"name": "Accelerator news", "type": "google_news", "any_publisher": True,
+    {"name": "Accelerator news", "type": "google_news", "any_publisher": True, "strict": True,
      "terms": '(accelerator OR incubator) (cohort OR "applications open" OR "demo day" OR selects OR "startups for")'},
     {"name": "VC fund news", "type": "google_news", "any_publisher": True,
      "terms": '("first close" OR "final close" OR "launches fund" OR "maiden fund" OR "new fund" OR "fund of funds") '
@@ -545,6 +546,12 @@ def run():
             text = f"{article['title']} {article['summary']}"
             if not is_relevant(text):
                 continue
+            # Noisy sources (LinkedIn posts, worldwide accelerator news): keep only rows that
+            # name a company, an investor or an accelerator program
+            if source.get("strict"):
+                deal = extract_deal(article["title"])
+                if not (deal["company"] or deal["investors"] or program_names(article["title"])):
+                    continue
             link = article["link"]
             if not link or link in existing_urls or title_key(article["title"]) in existing_titles:
                 continue
@@ -583,7 +590,7 @@ def run():
 
     tabs = [
         ("Deals", DEALS_HEADER, build_deals_table(all_rows)),
-        (INVESTORS_TAB, INVESTOR_HEADER, build_investor_table(all_rows)),
+        (INVESTORS_TAB, INVESTOR_HEADER, build_investor_table(dedupe_deals(all_rows))),
         ("Accelerators", ACCELERATOR_HEADER, build_accelerator_table(all_rows)),
         ("Accelerator Startups", YC_HEADER, fetch_yc_companies(session)),
     ]

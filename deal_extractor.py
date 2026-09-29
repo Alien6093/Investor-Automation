@@ -9,8 +9,8 @@ import re
 from investor_extractor import extract_investors, _clean, _key, _SPLIT, _STOP
 
 AMOUNT = re.compile(
-    r"(?:(?:rs\.?|inr|usd|us\$|s\$|\$|₹|€|£)\s?\d[\d,]*(?:\.\d+)?\s?(?:mn|million|cr|crore|bn|billion|lakh|k|m|b)?\b"
-    r"|\b\d[\d,]*(?:\.\d+)?\s?(?:mn|million|cr|crore|bn|billion|lakh)\s?(?:usd|dollars|rupees|inr)?\b)",
+    r"(?:(?:rs\.?|inr|usd|us\$|s\$|\$|₹|€|£)\s?\d[\d,]*(?:\.\d+)?\s?(?:mln|bln|mn|million|cr|crore|bn|billion|lakh|k|m|b)?\b"
+    r"|\b\d[\d,]*(?:\.\d+)?\s?(?:mln|bln|mn|million|cr|crore|bn|billion|lakh)\s?(?:usd|dollars|rupees|inr)?\b)",
     re.I,
 )
 
@@ -24,7 +24,7 @@ ROUND = re.compile(
 _DESCRIPTOR = re.compile(
     r"^.*\b(?:startup|start-up|platform|brand|company|firm|maker|provider|marketplace|app|player|"
     r"unicorn|venture|operator|developer|manufacturer|lender|nbfc|fintech|edtech|healthtech|agritech|"
-    r"saas|chain|studio|label|network|solution|solutions|service|services|builder|specialist)s?,?\s+",
+    r"saas|chain|studio|label|network|solution|solutions|service|services|builder|specialist|investor)s?,?\s+",
     re.I,
 )
 
@@ -52,8 +52,13 @@ def extract_company(title):
         if not match:
             continue
         company = match.group("co").strip(" '\"‘’“”")
-        company = re.sub(r"^(?:exclusive|breaking|funding alert)\s*:\s*", "", company, flags=re.I)
+        company = re.sub(r"^[^\w]+", "", company)                      # leading emoji / symbols
+        company = company.rsplit(": ", 1)[-1]                           # "BREAKING: X", "Forget the feed: X"
+        company = re.sub(r"^.*-backed\s+", "", company, flags=re.I)     # "Prime Focus-backed Brahma AI"
+        company = re.sub(r"(?:\s+(?:has|have|just|officially|finally|also|today|now))+$", "", company, flags=re.I)
         company = _DESCRIPTOR.sub("", company)
+        if re.match(r"(?i)(?:we|i|our|my|they|he|she|it|this|just|big|excited|exciting|thrilled|proud|so)\b", company):
+            continue
         company = re.sub(r"[’']s$", "", company).strip(" ,-'\"‘’“”")
         if (company and len(company.split()) <= 6 and re.search(r"[A-Za-z]", company)
                 and not AMOUNT.search(company)):
