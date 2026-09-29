@@ -13,9 +13,13 @@ import feedparser
 import gspread
 from google.oauth2.service_account import Credentials
 
-from investor_extractor import build_investor_table, INVESTOR_HEADER
+from investor_extractor import build_investor_table, extract_investors, INVESTOR_HEADER
+from deal_extractor import extract_deal
 
-ARTICLE_HEADER = ["Date", "Source", "Title", "Category", "Link"]
+BASE_HEADER = ["Date", "Source", "Title", "Category", "Link"]
+DEAL_HEADER = ["Company", "Amount", "Round", "Investors"]
+ARTICLE_HEADER = BASE_HEADER + DEAL_HEADER
+NOT_FOUND = "—"  # marks a row whose investors were looked for but not named
 INVESTORS_TAB = "Investors"
 
 # Scheduled runs only look back a few days (duplicates are skipped anyway).
@@ -328,6 +332,52 @@ def get_start_date():
     return datetime.utcnow() - timedelta(days=DEFAULT_LOOKBACK_DAYS)
 
 
+def fetch_article_text(session, url):
+    """Summary + opening paragraphs of an article, where investors are usually named."""
+    if "news.google.com" in url:
+        return ""  # Google News redirect links can't be resolved without a browser
+    try:
+        resp = session.get(url, timeout=20)
+    except requests.RequestException:
+        return ""
+    if resp.status_code != 200:
+        return ""
+    page = resp.text
+    parts = re.findall(r'<meta[^>]+(?:property="og:description"|name="description")[^>]+content="([^"]*)"', page)
+    body = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", page)
+    parts += re.findall(r"(?is)<p[^>]*>(.*?)</p>", body)[:12]
+    return " ".join(clean_text(part) for part in parts if part.strip())[:4000]
+
+
+def add_deal_columns(session, rows):
+    """Fill Company / Amount / Round / Investors (columns F-I) for rows that lack them."""
+    todo = [row for row in rows if len(row) < 9 or not row[8]]
+    if not todo:
+        return 0
+
+    def needs_article(row):
+        title, category, link = row[2], row[3], row[4]
+        return (not extract_investors(title)
+                and category in ("Startup Funding", "VC / Fund News", "Accelerator Program")
+                and "news.google.com" not in link)
+
+    to_fetch = [row[4] for row in todo if needs_article(row)]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        texts = dict(zip(to_fetch, pool.map(lambda link: fetch_article_text(session, link), to_fetch)))
+    print(f"Deal columns: {len(todo)} rows to fill, {len(to_fetch)} article pages read for investor names")
+
+    for row in todo:
+        deal = extract_deal(row[2], texts.get(row[4], ""))
+        row[5:] = []
+        row += [
+            deal["company"],
+            deal["amount"],
+            deal["round"],
+            "; ".join(deal["investors"]) or NOT_FOUND,
+        ]
+    return len(todo)
+
+
 def run():
     start = get_start_date()
     print(f"Collecting articles published since {start:%Y-%m-%d %H:%M} UTC")
@@ -336,17 +386,30 @@ def run():
     print(f"Connected to sheet: {sheet.spreadsheet.title} / {sheet.title}")
     dry_run = os.environ.get("DRY_RUN", "").lower() == "true"
 
-    if not dry_run and sheet.row_values(1)[:5] != ARTICLE_HEADER:
-        sheet.insert_row(ARTICLE_HEADER, 1)
-        sheet.freeze(rows=1)
-        print("Added header row to the articles tab.")
-
-    # Existing links in column E, used to avoid duplicate rows
-    existing_urls = set(sheet.col_values(5))
-    new_rows = []
-
     session = requests.Session()
     session.headers.update(HEADERS)
+
+    all_values = sheet.get_all_values()
+    has_header = bool(all_values) and all_values[0][:5] == BASE_HEADER
+    if not dry_run:
+        if not has_header:
+            sheet.insert_row(ARTICLE_HEADER, 1)
+            sheet.freeze(rows=1)
+            print("Added header row to the articles tab.")
+        elif all_values[0][:9] != ARTICLE_HEADER:
+            sheet.update([ARTICLE_HEADER], "A1")
+            print("Extended header row with Company / Amount / Round / Investors.")
+    existing_rows = [row for row in (all_values[1:] if has_header else all_values) if any(row[:5])]
+
+    # Fill deal columns for existing rows that don't have them yet (first run: the whole backfill)
+    filled = add_deal_columns(session, existing_rows)
+    if filled and not dry_run:
+        sheet.update([row[5:9] for row in existing_rows], f"F2:I{len(existing_rows) + 1}")
+        print(f"Filled deal columns for {filled} existing rows.")
+
+    # Existing links in column E, used to avoid duplicate rows
+    existing_urls = {row[4] for row in existing_rows}
+    new_rows = []
 
     for source in SOURCES:
         try:
@@ -374,27 +437,32 @@ def run():
             added += 1
         print(f"[{source['name']}] ({source['type']}) fetched {len(articles)}, {added} new relevant")
 
+    new_rows.sort(key=lambda row: row[0])
+    add_deal_columns(session, new_rows)
     if new_rows and dry_run:
-        new_rows.sort(key=lambda row: row[0])
-        print(f"DRY RUN: would add {len(new_rows)} rows. Sample:")
-        for row in new_rows[:: max(1, len(new_rows) // 40)]:
-            print("   ", " | ".join(row))
+        print(f"DRY RUN: would add {len(new_rows)} rows.")
     elif new_rows:
-        new_rows.sort(key=lambda row: row[0])
         sheet.append_rows(new_rows)
         print(f"Successfully added {len(new_rows)} relevant funding/VC items.")
     else:
         print("No new funding or accelerator updates found.")
 
-    update_investors_tab(sheet, new_rows if dry_run else None)
+    all_rows = existing_rows + new_rows
+    with_investors = sum(1 for row in all_rows if row[8] != NOT_FOUND)
+    print(f"Rows with investor names: {with_investors} of {len(all_rows)}")
+    if dry_run:
+        print("DRY RUN sample (Title | Company | Amount | Round | Investors):")
+        for row in all_rows[:: max(1, len(all_rows) // 60)]:
+            print("   ", " | ".join([row[2][:70]] + row[5:9]))
+
+    update_investors_tab(sheet, all_rows, dry_run)
 
 
-def update_investors_tab(sheet, dry_run_rows=None):
-    """Rebuild the Investors tab from every article row in the articles tab."""
-    rows = [row for row in sheet.get_all_values() if row[:5] != ARTICLE_HEADER]
+def update_investors_tab(sheet, rows, dry_run=False):
+    """Rebuild the Investors tab from every article row."""
     table = build_investor_table(rows)
 
-    if dry_run_rows is not None:
+    if dry_run:
         print(f"DRY RUN: Investors tab would list {len(table)} investors. Top 25:")
         for row in table[:25]:
             print("   ", " | ".join(str(v) for v in row[:5]))

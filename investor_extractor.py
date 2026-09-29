@@ -9,7 +9,8 @@ import re
 # Words that end an investor-name phrase
 _STOP = (
     r"(?:\s+(?:to|for|as|at|in|into|amid|with|via|on|after|ahead|while|that|who|which|"
-    r"and others|among others|others|existing investors|other investors|valuing|valuation)\b"
+    r"and others|among others|others|valuing|valuation)\b"
+    r"|\s+(?:and\s+)?(?:existing|other|new) investors(?=\s*(?:$|[.,;:]))"
     r"|\s+[-–—|:;(]|[?!;:(]|\.$|$)"
 )
 
@@ -119,13 +120,21 @@ def investor_type(name):
 
 
 def build_investor_table(rows):
-    """rows: sheet rows [date, source, title, category, link]. Returns rows for the Investors tab."""
+    """rows: sheet rows [date, source, title, category, link, company, amount, round, investors].
+
+    Uses the Investors column when present (it includes names found in the
+    article text), otherwise falls back to the headline.
+    """
     investors = {}
     for row in rows:
         if len(row) < 5 or not row[2]:
             continue
         date, source, title, _category, link = row[:5]
-        for name in extract_investors(title):
+        if len(row) > 8 and row[8]:
+            names = [n.strip() for n in row[8].split(";") if n.strip() and n.strip() != "—"]
+        else:
+            names = extract_investors(title)
+        for name in names:
             entry = investors.setdefault(_key(name), {
                 "name": name, "mentions": 0, "first": date, "latest": date,
                 "title": title, "link": link, "sources": set(),
