@@ -36,6 +36,7 @@ jobs:
 
       - name: Run Fetcher
         env:
+          PYTHONUNBUFFERED: '1'
           GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
           SHEET_ID: ${{ secrets.SHEET_ID }}
           START_DATE: ${{ github.event.inputs.start_date }}

@@ -3,6 +3,7 @@ import json
 import re
 import html
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote_plus
@@ -223,9 +224,11 @@ def fetch_sitemap(session, source, start):
             candidates[link] = date
     print(f"[{source['name']}] {len(sitemap_urls)} sitemaps, {len(candidates)} keyword-matching URLs")
 
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        metas = list(pool.map(lambda link: fetch_page_meta(session, link), candidates))
+
     articles = []
-    for link, sitemap_date in candidates.items():
-        title, pub_date = fetch_page_meta(session, link)
+    for (link, sitemap_date), (title, pub_date) in zip(candidates.items(), metas):
         date = pub_date or sitemap_date
         if date is None or date < start:
             continue
