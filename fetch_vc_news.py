@@ -63,7 +63,7 @@ WEAK_KEYWORDS = re.compile(
 )
 EXCLUDE_KEYWORDS = re.compile(
     r'\b(shares?|stocks?|sensex|nifty|dalal street|etfs?|mutual funds?|disinvestment|ipo|listing|'
-    r'dividend|bonds?|q[1-4] results|quarterly results|govt|government)\b',
+    r'dividend|bonds?|q[1-4] results|quarterly results|govt|government|qip|ncds?|rights issue)\b',
     re.IGNORECASE
 )
 
