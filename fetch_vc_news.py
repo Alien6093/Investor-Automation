@@ -501,7 +501,10 @@ def run():
 
     all_rows = existing_rows + new_rows
     with_investors = sum(1 for row in all_rows if row[8] != NOT_FOUND)
-    print(f"Rows with investor names: {with_investors} of {len(all_rows)}")
+    deals = [row for row in all_rows if row[5]]
+    deals_with_investors = sum(1 for row in deals if row[8] != NOT_FOUND)
+    print(f"Rows with investor names: {with_investors} of {len(all_rows)}; "
+          f"single-deal rows (Company filled): {len(deals)}, of which {deals_with_investors} name investors")
     if dry_run:
         print("DRY RUN sample (Title | Company | Amount | Round | Investors):")
         for row in all_rows[:: max(1, len(all_rows) // 60)]:

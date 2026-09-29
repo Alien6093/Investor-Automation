@@ -46,6 +46,8 @@ _NOT_NAMES = {
     "domestic investors", "global investors", "institutional investors", "the company", "it", "fund",
     "the fund", "startup", "startups", "india", "us", "government", "govt", "series a", "series b",
     "seed round", "funding", "round", "new fund", "investment", "series c", "pre-series a", "debt",
+    "crunchbase", "crunchbase news", "techcrunch", "inc42", "entrackr", "yourstory", "e27", "vccircle",
+    "economic times", "et", "reuters", "bloomberg", "mint", "moneycontrol", "tracxn", "pitchbook",
     "vc", "vcs", "pe", "pe fund", "vc fund", "private equity", "venture", "ventures", "capital",
 }
 
