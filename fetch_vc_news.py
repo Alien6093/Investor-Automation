@@ -16,6 +16,9 @@ from google.oauth2.service_account import Credentials
 
 from investor_extractor import build_investor_table, extract_investors, INVESTOR_HEADER
 from deal_extractor import extract_deal, is_single_deal
+from summary_tabs import build_deals_table, build_accelerator_table, DEALS_HEADER, ACCELERATOR_HEADER
+
+YC_HEADER = ["Program", "Batch", "Company", "One-liner", "Industry", "Location", "Website", "YC Profile"]
 
 BASE_HEADER = ["Date", "Source", "Title", "Category", "Link"]
 DEAL_HEADER = ["Company", "Amount", "Round", "Investors"]
@@ -54,7 +57,30 @@ SOURCES = [
     {"name": "TechCrunch Venture", "type": "wordpress", "base": "https://techcrunch.com", "params": {"categories": "577030455"}},
     {"name": "Crunchbase News", "type": "wordpress", "base": "https://news.crunchbase.com"},
     {"name": "e27", "type": "wordpress", "base": "https://e27.co"},
+    {"name": "Indian Startup News", "type": "rss", "url": "https://indianstartupnews.com/rss"},
+    {"name": "Indian Startup News", "type": "google_news", "site": "indianstartupnews.com"},
+    {"name": "Startup Story Media", "type": "rss", "url": "https://startupstorymedia.com/feed/"},
+    {"name": "Startup Story Media", "type": "wordpress", "base": "https://startupstorymedia.com"},
+    {"name": "Entrepreneur India", "type": "rss", "url": "https://www.entrepreneur.com/en-in/rss"},
+    {"name": "Livemint", "type": "rss", "url": "https://www.livemint.com/rss/companies"},
+    {"name": "Moneycontrol", "type": "google_news", "site": "moneycontrol.com"},
+    {"name": "Business Standard", "type": "google_news", "site": "business-standard.com"},
+    {"name": "DealStreetAsia", "type": "google_news", "site": "dealstreetasia.com"},
+    # LinkedIn posts / articles announcing rounds, fund closes and cohorts (indexed by Google News)
+    {"name": "LinkedIn", "type": "google_news", "site": "linkedin.com",
+     "terms": '("raised" OR "funding round" OR "led by" OR "first close" OR "final close" OR cohort OR accelerator)'},
+    # Publisher-agnostic searches; the Source column shows the publisher
+    {"name": "Accelerator news", "type": "google_news", "any_publisher": True,
+     "terms": '(accelerator OR incubator) (cohort OR "applications open" OR "demo day" OR selects OR "startups for")'},
+    {"name": "VC fund news", "type": "google_news", "any_publisher": True,
+     "terms": '("first close" OR "final close" OR "launches fund" OR "maiden fund" OR "new fund" OR "fund of funds") '
+              '(venture OR VC OR startups)'},
+    {"name": "Funding news", "type": "google_news", "any_publisher": True,
+     "terms": '(startup OR startups) (raises OR raised OR funding) "led by"'},
 ]
+
+# Y Combinator batches published at yc-oss.github.io (public YC company directory data)
+YC_BATCHES = ["winter-2026", "spring-2026", "summer-2026", "fall-2026"]
 
 # Terms that on their own mark an article as funding / VC / accelerator news
 STRONG_KEYWORDS = re.compile(
@@ -280,7 +306,9 @@ def fetch_google_news(session, source, start):
     today = datetime.utcnow()
     while day <= today:
         end = day + window
-        query = f"site:{source['site']} {GOOGLE_NEWS_TERMS} after:{day:%Y-%m-%d} before:{end:%Y-%m-%d}"
+        terms = source.get("terms", GOOGLE_NEWS_TERMS)
+        site = "" if source.get("any_publisher") else f"site:{source['site']} "
+        query = f"{site}{terms} after:{day:%Y-%m-%d} before:{end:%Y-%m-%d}"
         url = f"https://news.google.com/rss/search?q={quote_plus(query)}&hl=en-IN&gl=IN&ceid=IN:en"
         resp = get(session, url)
         if resp is not None and resp.status_code == 200:
@@ -294,7 +322,10 @@ def fetch_google_news(session, source, start):
                 publisher = entry.get("source", {}).get("title", "")
                 if publisher and title.endswith(f" - {publisher}"):
                     title = title[: -len(publisher) - 3]
-                articles.append({"date": pub_date, "title": title, "summary": "", "link": entry.get("link", "")})
+                articles.append({
+                    "date": pub_date, "title": title[:300], "summary": "", "link": entry.get("link", ""),
+                    "publisher": publisher if source.get("any_publisher") else "",
+                })
         day = end
         time.sleep(1)
     return articles
@@ -430,6 +461,43 @@ def add_deal_columns(session, rows):
     return len(todo)
 
 
+def title_key(title):
+    return re.sub(r"[^a-z0-9]", "", title.lower())[:90]
+
+
+def fetch_yc_companies(session):
+    """Startups in Y Combinator's 2026 batches (from the public yc-oss directory data)."""
+    rows = []
+    for batch in YC_BATCHES:
+        resp = get(session, f"https://yc-oss.github.io/api/batches/{batch}.json")
+        if resp is None or resp.status_code != 200:
+            continue
+        for company in resp.json():
+            rows.append([
+                "Y Combinator",
+                company.get("batch") or batch.replace("-", " ").title(),
+                company.get("name", ""),
+                company.get("one_liner", ""),
+                company.get("industry", "") or ", ".join(company.get("industries", [])[:3]),
+                company.get("all_locations", ""),
+                company.get("website", ""),
+                f"https://www.ycombinator.com/companies/{company.get('slug', '')}",
+            ])
+    print(f"Y Combinator: {len(rows)} companies in {', '.join(YC_BATCHES)}")
+    return rows
+
+
+def write_tab(spreadsheet, name, header, table):
+    try:
+        tab = spreadsheet.worksheet(name)
+    except gspread.exceptions.WorksheetNotFound:
+        tab = spreadsheet.add_worksheet(title=name, rows=len(table) + 10, cols=len(header))
+    tab.clear()
+    tab.update([header] + table, "A1")
+    tab.freeze(rows=1)
+    print(f"{name} tab updated: {len(table)} rows.")
+
+
 def run():
     start = get_start_date()
     print(f"Collecting articles published since {start:%Y-%m-%d %H:%M} UTC")
@@ -459,8 +527,10 @@ def run():
         sheet.update([row[5:9] for row in existing_rows], f"F2:I{len(existing_rows) + 1}")
         print(f"Filled deal columns for {filled} existing rows.")
 
-    # Existing links in column E, used to avoid duplicate rows
+    # Existing links (column E) and headlines, used to avoid duplicate rows. The same story
+    # can arrive twice (e.g. directly from Entrackr and again through Google News).
     existing_urls = {row[4] for row in existing_rows}
+    existing_titles = {title_key(row[2]) for row in existing_rows}
     new_rows = []
 
     for source in SOURCES:
@@ -476,12 +546,13 @@ def run():
             if not is_relevant(text):
                 continue
             link = article["link"]
-            if not link or link in existing_urls:
+            if not link or link in existing_urls or title_key(article["title"]) in existing_titles:
                 continue
             existing_urls.add(link)
+            existing_titles.add(title_key(article["title"]))
             new_rows.append([
                 article["date"].strftime("%Y-%m-%d %H:%M"),
-                source["name"],
+                article.get("publisher") or source["name"],
                 article["title"],
                 categorize_article(text),
                 link,
@@ -510,28 +581,19 @@ def run():
         for row in all_rows[:: max(1, len(all_rows) // 60)]:
             print("   ", " | ".join([row[2][:70]] + row[5:9]))
 
-    update_investors_tab(sheet, all_rows, dry_run)
-
-
-def update_investors_tab(sheet, rows, dry_run=False):
-    """Rebuild the Investors tab from every article row."""
-    table = build_investor_table(rows)
-
-    if dry_run:
-        print(f"DRY RUN: Investors tab would list {len(table)} investors. Top 25:")
-        for row in table[:25]:
-            print("   ", " | ".join(str(v) for v in row[:5]))
-        return
-
-    spreadsheet = sheet.spreadsheet
-    try:
-        tab = spreadsheet.worksheet(INVESTORS_TAB)
-    except gspread.exceptions.WorksheetNotFound:
-        tab = spreadsheet.add_worksheet(title=INVESTORS_TAB, rows=len(table) + 10, cols=len(INVESTOR_HEADER))
-    tab.clear()
-    tab.update([INVESTOR_HEADER] + table, "A1")
-    tab.freeze(rows=1)
-    print(f"Investors tab updated: {len(table)} investors / funds / accelerators.")
+    tabs = [
+        ("Deals", DEALS_HEADER, build_deals_table(all_rows)),
+        (INVESTORS_TAB, INVESTOR_HEADER, build_investor_table(all_rows)),
+        ("Accelerators", ACCELERATOR_HEADER, build_accelerator_table(all_rows)),
+        ("Accelerator Startups", YC_HEADER, fetch_yc_companies(session)),
+    ]
+    for name, header, table in tabs:
+        if dry_run:
+            print(f"DRY RUN: {name} tab would have {len(table)} rows. First 15:")
+            for row in table[:15]:
+                print("   ", " | ".join(str(v)[:60] for v in row[:6]))
+        else:
+            write_tab(sheet.spreadsheet, name, header, table)
 
 
 if __name__ == "__main__":
