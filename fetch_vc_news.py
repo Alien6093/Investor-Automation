@@ -7,7 +7,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, unquote
 
 import requests
 import feedparser
@@ -334,31 +334,52 @@ def get_start_date():
 
 
 TEXT_STATS = Counter()
-WORDPRESS_BASES = [s["base"] for s in SOURCES if s["type"] == "wordpress"]
+WORDPRESS_BASES = {s["base"]: s.get("params", {}) for s in SOURCES if s["type"] == "wordpress"}
 
 
-def fetch_wordpress_text(session, url, base):
-    slug = url.rstrip("/").rsplit("/", 1)[-1]
-    resp = get(session, f"{base}/wp-json/wp/v2/posts", params={"slug": slug, "_fields": "excerpt,content"})
-    TEXT_STATS[getattr(resp, "status_code", "no response")] += 1
-    try:
-        posts = resp.json() if resp is not None and resp.status_code == 200 else []
-    except ValueError:
-        posts = []
-    if not posts:
-        return ""
-    post = posts[0]
-    paragraphs = re.findall(r"(?is)<p[^>]*>(.*?)</p>", post.get("content", {}).get("rendered", ""))[:10]
-    return " ".join([clean_text(post.get("excerpt", {}).get("rendered", ""))] + [clean_text(p) for p in paragraphs])[:4000]
+def _norm_link(url):
+    return unquote(url).rstrip("/").lower()
+
+
+def fetch_wordpress_texts(session, base, rows):
+    """Excerpt + opening paragraphs for many WordPress posts, 100 per request."""
+    wanted = {_norm_link(row[4]) for row in rows}
+    dates = [datetime.strptime(row[0][:10], "%Y-%m-%d") for row in rows]
+    texts = {}
+    window_start, last = min(dates) - timedelta(days=1), max(dates) + timedelta(days=1)
+    while window_start <= last:
+        window_end = window_start + timedelta(days=7)
+        page = 1
+        while True:
+            params = {
+                "after": window_start.strftime("%Y-%m-%dT%H:%M:%S"),
+                "before": window_end.strftime("%Y-%m-%dT%H:%M:%S"),
+                "per_page": 100, "page": page, "_fields": "link,excerpt,content",
+                **WORDPRESS_BASES.get(base, {}),
+            }
+            resp = get(session, f"{base}/wp-json/wp/v2/posts", params=params)
+            TEXT_STATS[f"{base} {getattr(resp, 'status_code', 'no response')}"] += 1
+            if resp is None or resp.status_code != 200:
+                break
+            posts = resp.json()
+            for post in posts:
+                link = _norm_link(post.get("link", ""))
+                if link not in wanted:
+                    continue
+                paragraphs = re.findall(r"(?is)<p[^>]*>(.*?)</p>", post.get("content", {}).get("rendered", ""))[:10]
+                texts[link] = " ".join([clean_text(post.get("excerpt", {}).get("rendered", ""))]
+                                       + [clean_text(p) for p in paragraphs])[:4000]
+            if not posts or page >= int(resp.headers.get("X-WP-TotalPages", page)):
+                break
+            page += 1
+        window_start = window_end
+    return texts
 
 
 def fetch_article_text(session, url):
     """Summary + opening paragraphs of an article, where investors are usually named."""
     if "news.google.com" in url:
         return ""  # Google News redirect links can't be resolved without a browser
-    for base in WORDPRESS_BASES:
-        if url.startswith(base):
-            return fetch_wordpress_text(session, url, base)
     resp = get(session, url)
     TEXT_STATS[getattr(resp, "status_code", "no response")] += 1
     if resp is None or resp.status_code != 200:
@@ -381,9 +402,18 @@ def add_deal_columns(session, rows):
         title, link = row[2], row[4]
         return not extract_investors(title) and is_single_deal(title) and "news.google.com" not in link
 
-    to_fetch = [row[4] for row in todo if needs_article(row)]
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        texts = dict(zip(to_fetch, pool.map(lambda link: fetch_article_text(session, link), to_fetch)))
+    to_fetch = [row for row in todo if needs_article(row)]
+    texts = {}
+    # WordPress sites: bulk API reads (per-article requests get rate-limited)
+    for base in WORDPRESS_BASES:
+        wp_rows = [row for row in to_fetch if row[4].startswith(base)]
+        if wp_rows:
+            by_link = fetch_wordpress_texts(session, base, wp_rows)
+            texts.update({row[4]: by_link.get(_norm_link(row[4]), "") for row in wp_rows})
+    # Other sites: read the article page
+    page_links = [row[4] for row in to_fetch if row[4] not in texts]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        texts.update(zip(page_links, pool.map(lambda link: fetch_article_text(session, link), page_links)))
     got_text = sum(1 for text in texts.values() if text)
     print(f"Deal columns: {len(todo)} rows to fill, {len(to_fetch)} articles read for investor names "
           f"({got_text} with text; HTTP status counts {dict(TEXT_STATS)})")
