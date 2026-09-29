@@ -30,7 +30,7 @@ _PATTERNS = [
     # "Peak XV's Surge programme selects 18 startups for 12th cohort"
     re.compile(r"^(?P<names>[^,:]+?)\s+(?:selects|picks|announces|unveils|opens applications)\b.*?\b(?:cohort|batch|startups for)\b", re.I),
     # "Aramco Ventures invests in ..." / "Blume Ventures backs ..."
-    re.compile(r"^(?P<names>[^:]+?)\s+(?:invests?|co-invests?|backs?|bets on|doubles down on|picks up stake)\b", re.I),
+    re.compile(r"^(?P<names>[^:;]+?)\s+(?:invests? in|co-invests?|backs?(?=\s+[A-Z0-9])|bets on|doubles down on|picks up stake)\b"),
 ]
 
 # "Peak XV-backed Mosaic", "Virat Kohli-Backed WROGN"
@@ -71,6 +71,12 @@ def _clean(name):
     for _ in range(2):
         name = _LEADING_JUNK.sub("", name)
     name = re.sub(r"\s+(?:programme|program|accelerator program(?:me)?)$", "", name, flags=re.I)
+    # "Startup-community platform D2C Insider" -> "D2C Insider"
+    name = re.sub(r"^.*\b(?:platform|startup|firm|company|brand|maker|provider)s?\s+(?=[A-Z0-9])", "", name)
+    # Trailing lowercase words: "Bertelsmann India Investments will" -> "Bertelsmann India Investments"
+    name = re.sub(r"(?:\s+[a-z][\w-]*)+$", "", name)
+    if re.match(r"(?i)(?:at|in|on|for|with|from|by|as|after|during|this|that|these|those|our|their|his|her)\b", name):
+        return None
     name = re.sub(r"[’']s$", "", name).strip(" '\"‘’“”,-")
     if not name or _AMOUNT.search(name):
         return None
@@ -119,7 +125,7 @@ def investor_type(name):
         return "Angel / Network"
     if re.search(r"ventures?|capital|partners|vc\b|fund|investments?|equity|advisors|asset|holdings|"
                  r"\bpe\b|sequoia|accel|peak xv|blume|elevation|lightspeed|nexus|matrix|kalaari|"
-                 r"a16z|bessemer|tiger global|softbank|general catalyst|iron pillar|3one4|stellaris|chiratae|"
+                 r"a16z|andreessen|bessemer|tiger global|softbank|general catalyst|iron pillar|3one4|stellaris|chiratae|"
                  r"rainmatter|z47|ajvc|pi ventures|fireside|verlinvest|rebalance|oister|360 one|ipv|inflection point|norwest|piper serica|prosus|dsp|motilal|kotak|temasek|gic|ifc", lower):
         return "VC / PE Fund"
     return "Other (Corporate / Individual)"

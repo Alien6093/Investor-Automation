@@ -3,6 +3,7 @@ import json
 import re
 import html
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -332,16 +333,18 @@ def get_start_date():
     return datetime.utcnow() - timedelta(days=DEFAULT_LOOKBACK_DAYS)
 
 
+TEXT_STATS = Counter()
 WORDPRESS_BASES = [s["base"] for s in SOURCES if s["type"] == "wordpress"]
 
 
 def fetch_wordpress_text(session, url, base):
     slug = url.rstrip("/").rsplit("/", 1)[-1]
+    resp = get(session, f"{base}/wp-json/wp/v2/posts", params={"slug": slug, "_fields": "excerpt,content"})
+    TEXT_STATS[getattr(resp, "status_code", "no response")] += 1
     try:
-        resp = session.get(f"{base}/wp-json/wp/v2/posts", params={"slug": slug, "_fields": "excerpt,content"}, timeout=20)
-        posts = resp.json() if resp.status_code == 200 else []
-    except (requests.RequestException, ValueError):
-        return ""
+        posts = resp.json() if resp is not None and resp.status_code == 200 else []
+    except ValueError:
+        posts = []
     if not posts:
         return ""
     post = posts[0]
@@ -356,11 +359,9 @@ def fetch_article_text(session, url):
     for base in WORDPRESS_BASES:
         if url.startswith(base):
             return fetch_wordpress_text(session, url, base)
-    try:
-        resp = session.get(url, timeout=20)
-    except requests.RequestException:
-        return ""
-    if resp.status_code != 200:
+    resp = get(session, url)
+    TEXT_STATS[getattr(resp, "status_code", "no response")] += 1
+    if resp is None or resp.status_code != 200:
         return ""
     page = resp.text
     parts = re.findall(r'<meta[^>]+(?:property="og:description"|name="description")[^>]+content="([^"]*)"', page)
@@ -381,9 +382,11 @@ def add_deal_columns(session, rows):
         return not extract_investors(title) and is_single_deal(title) and "news.google.com" not in link
 
     to_fetch = [row[4] for row in todo if needs_article(row)]
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:
         texts = dict(zip(to_fetch, pool.map(lambda link: fetch_article_text(session, link), to_fetch)))
-    print(f"Deal columns: {len(todo)} rows to fill, {len(to_fetch)} article pages read for investor names")
+    got_text = sum(1 for text in texts.values() if text)
+    print(f"Deal columns: {len(todo)} rows to fill, {len(to_fetch)} articles read for investor names "
+          f"({got_text} with text; HTTP status counts {dict(TEXT_STATS)})")
 
     for row in todo:
         deal = extract_deal(row[2], texts.get(row[4], ""))

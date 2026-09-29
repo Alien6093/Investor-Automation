@@ -6,7 +6,7 @@ by Accel, with participation from Blume Ventures ...").
 """
 import re
 
-from investor_extractor import extract_investors, _clean, _SPLIT, _STOP
+from investor_extractor import extract_investors, _clean, _key, _SPLIT, _STOP
 
 AMOUNT = re.compile(
     r"(?:(?:rs\.?|inr|usd|us\$|s\$|\$|₹|€|£)\s?\d[\d,]*(?:\.\d+)?\s?(?:mn|million|cr|crore|bn|billion|lakh|k|m|b)?\b"
@@ -85,12 +85,23 @@ def is_single_deal(title):
 
 def extract_deal(title, text=""):
     """Return dict(company, amount, round, investors[list]) for an article."""
+    if ROUNDUP.search(title):
+        return {"company": "", "amount": "", "round": "", "investors": []}
     investors = extract_investors(title)
-    company = extract_company(title) if not ROUNDUP.search(title) else ""
+    company = extract_company(title)
     if not company and not investors:
         return {"company": "", "amount": "", "round": "", "investors": []}
-    if not investors and text and company:
+    # For fund launches the article names LPs / portfolio companies, not investors in a startup
+    fund_launch = re.search(r"\bfunds?\b|\bcorpus\b", title, re.I)
+    if not investors and text and company and not fund_launch:
         investors = _investors_from_text(text)
+    # Keep one spelling per investor ("Bertelsmann India" / "Bertelsmann India Investments")
+    unique = {}
+    for name in investors:
+        key = _key(name)
+        if key not in unique or len(name) > len(unique[key]):
+            unique[key] = name
+    investors = list(unique.values())
     # The startup itself is sometimes caught as a name ("X raises from Y" in body text)
     if company:
         investors = [n for n in investors if n.lower() != company.lower()]
