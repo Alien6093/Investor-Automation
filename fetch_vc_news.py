@@ -13,6 +13,11 @@ import feedparser
 import gspread
 from google.oauth2.service_account import Credentials
 
+from investor_extractor import build_investor_table, INVESTOR_HEADER
+
+ARTICLE_HEADER = ["Date", "Source", "Title", "Category", "Link"]
+INVESTORS_TAB = "Investors"
+
 # Scheduled runs only look back a few days (duplicates are skipped anyway).
 # For a historical backfill, set START_DATE=YYYY-MM-DD, e.g. 2026-01-01.
 DEFAULT_LOOKBACK_DAYS = 3
@@ -329,6 +334,12 @@ def run():
 
     sheet = setup_google_sheet()
     print(f"Connected to sheet: {sheet.spreadsheet.title} / {sheet.title}")
+    dry_run = os.environ.get("DRY_RUN", "").lower() == "true"
+
+    if not dry_run and sheet.row_values(1)[:5] != ARTICLE_HEADER:
+        sheet.insert_row(ARTICLE_HEADER, 1)
+        sheet.freeze(rows=1)
+        print("Added header row to the articles tab.")
 
     # Existing links in column E, used to avoid duplicate rows
     existing_urls = set(sheet.col_values(5))
@@ -363,7 +374,7 @@ def run():
             added += 1
         print(f"[{source['name']}] ({source['type']}) fetched {len(articles)}, {added} new relevant")
 
-    if new_rows and os.environ.get("DRY_RUN", "").lower() == "true":
+    if new_rows and dry_run:
         new_rows.sort(key=lambda row: row[0])
         print(f"DRY RUN: would add {len(new_rows)} rows. Sample:")
         for row in new_rows[:: max(1, len(new_rows) // 40)]:
@@ -374,6 +385,30 @@ def run():
         print(f"Successfully added {len(new_rows)} relevant funding/VC items.")
     else:
         print("No new funding or accelerator updates found.")
+
+    update_investors_tab(sheet, new_rows if dry_run else None)
+
+
+def update_investors_tab(sheet, dry_run_rows=None):
+    """Rebuild the Investors tab from every article row in the articles tab."""
+    rows = [row for row in sheet.get_all_values() if row[:5] != ARTICLE_HEADER]
+    table = build_investor_table(rows)
+
+    if dry_run_rows is not None:
+        print(f"DRY RUN: Investors tab would list {len(table)} investors. Top 25:")
+        for row in table[:25]:
+            print("   ", " | ".join(str(v) for v in row[:5]))
+        return
+
+    spreadsheet = sheet.spreadsheet
+    try:
+        tab = spreadsheet.worksheet(INVESTORS_TAB)
+    except gspread.exceptions.WorksheetNotFound:
+        tab = spreadsheet.add_worksheet(title=INVESTORS_TAB, rows=len(table) + 10, cols=len(INVESTOR_HEADER))
+    tab.clear()
+    tab.update([INVESTOR_HEADER] + table, "A1")
+    tab.freeze(rows=1)
+    print(f"Investors tab updated: {len(table)} investors / funds / accelerators.")
 
 
 if __name__ == "__main__":
