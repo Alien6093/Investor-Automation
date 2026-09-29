@@ -5,10 +5,14 @@ into the **VC & Funding Tracker** Google Sheet.
 
 ## What it does
 
-- **Sheet1**: one row per article (`Date | Source | Title | Category | Link`),
-  de-duplicated by link.
-- **Investors** tab: rebuilt every run from all article headlines: investor /
-  fund / accelerator name, type, number of mentions, first and latest mention,
+- **Sheet1**: one row per article, de-duplicated by link:
+  `Date | Source | Title | Category | Link | Company | Amount | Round | Investors`.
+  Company / Amount / Round / Investors are filled for single-deal headlines.
+  Investors come from the headline, or from the article's summary and opening
+  paragraphs when the headline doesn't name them; several are separated by `; `.
+  `—` means no investor was named (or the row isn't about one deal).
+- **Investors** tab: rebuilt every run from the Investors column: investor /
+  fund / accelerator name, type, number of deals, first and latest mention,
   and the latest headline and link.
 
 Sources: Entrackr, Inc42, YourStory, BW Businessworld, VCCircle, ET Tech,
