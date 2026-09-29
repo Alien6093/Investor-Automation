@@ -25,7 +25,10 @@ All tabs except Sheet1 are rebuilt on every run, so edit Sheet1, not them.
 Sources: Entrackr, Inc42, YourStory, BW Businessworld, VCCircle, ET Tech,
 TechCrunch Venture, Crunchbase News, e27, Y Combinator blog, Indian Startup
 News, Startup Story Media, Livemint, Moneycontrol, Business Standard,
-DealStreetAsia, LinkedIn posts, plus Google News searches (any publisher) for
+DealStreetAsia, LinkedIn posts and articles, EU-Startups, Sifted, TechCrunch
+Startups, Tech in Asia, Wamda, Startup Daily, The SaaS News, AlleyWatch, PE Hub,
+Private Equity Wire, Ventureburn, Business Today, FinSMEs, Tech Funding News,
+VentureBeat, Financial Express, plus Google News searches (any publisher) for
 accelerator cohorts, VC fund launches / closes and "led by" funding news.
 Sites that block automated requests or have no archive feed are read through
 Google News, so those rows link via `news.google.com`.
@@ -37,6 +40,9 @@ and looks back 3 days. To run it by hand: **Actions → Daily VC & Accelerator
 Fetcher → Run workflow**, with optional inputs:
 
 - `start_date` (`YYYY-MM-DD`): backfill everything since that date.
+- `only_sources`: comma-separated source names to fetch (e.g. `EU-Startups,Sifted`),
+  handy for backfilling a newly added source.
+- `refresh_deals`: re-extract Company / Amount / Round / Investors for every row.
 - `dry_run`: print what would be added without writing to the sheet.
 
 ## Setup
