@@ -38,20 +38,33 @@ def categorize_article(text):
 
 def setup_google_sheet():
     creds_json = json.loads(os.environ["GCP_SERVICE_ACCOUNT_KEY"])
-    scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+    # Opening a sheet by its title searches Google Drive, so the Drive
+    # scope is required alongside the Sheets scope.
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive.readonly",
+    ]
     creds = Credentials.from_service_account_info(creds_json, scopes=scopes)
     client = gspread.authorize(creds)
+    sheet_id = os.environ.get("SHEET_ID")
+    if sheet_id:
+        return client.open_by_key(sheet_id).sheet1
     return client.open("VC & Funding Tracker").sheet1
 
 def run():
     sheet = setup_google_sheet()
-    
+    print(f"Connected to sheet: {sheet.spreadsheet.title} / {sheet.title}")
+
     # Get existing URLs to avoid duplicate rows
     existing_urls = set(sheet.col_values(5)[1:]) if sheet.row_count > 1 else set()
     new_rows = []
 
     for source_name, feed_url in FEEDS.items():
         feed = feedparser.parse(feed_url)
+        status = feed.get("status", "n/a")
+        print(f"[{source_name}] HTTP {status}, {len(feed.entries)} entries")
+        if feed.bozo and not feed.entries:
+            print(f"[{source_name}] WARNING: could not read feed: {feed.get('bozo_exception')}")
         for entry in feed.entries:
             pub_tuple = entry.get("published_parsed") or entry.get("updated_parsed")
             if not pub_tuple:
