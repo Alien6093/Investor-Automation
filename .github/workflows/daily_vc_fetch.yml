@@ -28,4 +28,4 @@ jobs:
         env:
           GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
           SHEET_ID: ${{ secrets.SHEET_ID }}
-        run: python fetch_vc_news.py
+        run: python scratch/probe.py
