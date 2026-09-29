@@ -126,7 +126,8 @@ WEAK_KEYWORDS = re.compile(
 )
 EXCLUDE_KEYWORDS = re.compile(
     r'\b(shares?|stocks?|sensex|nifty|dalal street|etfs?|mutual funds?|disinvestment|ipo|listing|'
-    r'dividend|bonds?|q[1-4] results|quarterly results|govt|government|qip|ncds?|rights issue)\b',
+    r'dividend|bonds?|q[1-4] results|quarterly results|govt|government|qip|ncds?|rights issue|'
+    r'target price|price target|brokerage|sgb|sovereign gold|gold|silver|sip|nav|redemption|tax)\b',
     re.IGNORECASE
 )
 
@@ -550,7 +551,12 @@ def run():
             print("Extended header row with Company / Amount / Round / Investors.")
     existing_rows = [row for row in (all_values[1:] if has_header else all_values) if any(row[:5])]
 
-    # Fill deal columns for existing rows that don't have them yet (first run: the whole backfill)
+    # Fill deal columns for existing rows that don't have them yet (first run: the whole backfill).
+    # REFRESH_DEALS=true re-extracts them for every row, e.g. after the extraction rules improve.
+    if os.environ.get("REFRESH_DEALS", "").lower() == "true":
+        for row in existing_rows:
+            del row[5:]
+        print("Re-extracting Company / Amount / Round / Investors for all existing rows.")
     filled = add_deal_columns(session, existing_rows)
     if filled and not dry_run:
         sheet.update([row[5:9] for row in existing_rows], f"F2:I{len(existing_rows) + 1}")

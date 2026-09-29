@@ -83,6 +83,9 @@ def _clean(name):
     if re.match(r"(?i)(?:at|in|on|for|with|from|by|as|after|during|this|that|these|those|our|their|his|her)\b", name):
         return None
     name = re.sub(r"[’']s$", "", name).strip(" '\"‘’“”,-")
+    name = re.sub(r"\b(\w+)\s+\1$", r"\1", name)  # "3one4 Capital Capital" -> "3one4 Capital"
+    if "%" in name:
+        return None
     if not name or _AMOUNT.search(name):
         return None
     # Must look like a proper name: a capitalised word (allows "pi Ventures", "3one4 Capital")
@@ -148,7 +151,8 @@ def build_investor_table(rows):
             continue
         date, source, title, _category, link = row[:5]
         if len(row) > 8 and row[8]:
-            names = [n.strip() for n in row[8].split(";") if n.strip() and n.strip() != "—"]
+            names = [_clean(n) for n in row[8].split(";") if n.strip() and n.strip() != "—"]
+            names = [n for n in names if n]
         else:
             names = extract_investors(title)
         for name in names:
