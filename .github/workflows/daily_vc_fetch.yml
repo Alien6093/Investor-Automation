@@ -5,26 +5,40 @@ on:
     # Runs at 04:30 UTC = 10:00 AM IST
     - cron: '30 4 * * *'
   workflow_dispatch:
+    inputs:
+      start_date:
+        description: 'Backfill from this date (YYYY-MM-DD). Leave empty for the last 3 days.'
+        required: false
+        default: ''
+      dry_run:
+        description: 'Only print what would be added, do not write to the sheet'
+        type: boolean
+        default: false
 
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install feedparser gspread google-auth
+          pip install feedparser gspread google-auth requests
 
       - name: Run Fetcher
         env:
+          PYTHONUNBUFFERED: '1'
           GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          START_DATE: ${{ github.event.inputs.start_date }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: python fetch_vc_news.py
