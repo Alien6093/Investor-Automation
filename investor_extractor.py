@@ -44,7 +44,15 @@ _NOT_NAMES = {
     "domestic investors", "global investors", "institutional investors", "the company", "it", "fund",
     "the fund", "startup", "startups", "india", "us", "government", "govt", "series a", "series b",
     "seed round", "funding", "round", "new fund", "investment", "series c", "pre-series a", "debt",
+    "vc", "vcs", "pe", "pe fund", "vc fund", "private equity", "venture", "ventures", "capital",
 }
+
+
+def _key(name):
+    """Group spellings like 'Peak XV' / 'Peak XV Partners' or 'Accel' / 'Accel India'."""
+    key = re.sub(r"[^a-z0-9]", "", name.lower())
+    stripped = re.sub(r"(?:partners|ventures|venture|capital|vc|advisors|investments|management|india)+$", "", key)
+    return stripped or key
 
 _LEADING_JUNK = re.compile(
     r"^(?:its|the|a|an|existing investor|existing investors|investor|investors|vc firm|vc|"
@@ -105,7 +113,7 @@ def investor_type(name):
     if re.search(r"ventures?|capital|partners|vc\b|fund|investments?|equity|advisors|asset|holdings|"
                  r"\bpe\b|sequoia|accel|peak xv|blume|elevation|lightspeed|nexus|matrix|kalaari|"
                  r"a16z|bessemer|tiger global|softbank|general catalyst|iron pillar|3one4|stellaris|chiratae|"
-                 r"rainmatter|z47|ajvc|pi ventures|fireside|verlinvest|rebalance|oister|360 one|temasek|gic|ifc", lower):
+                 r"rainmatter|z47|ajvc|pi ventures|fireside|verlinvest|rebalance|oister|360 one|ipv|inflection point|norwest|piper serica|prosus|dsp|motilal|kotak|temasek|gic|ifc", lower):
         return "VC / PE Fund"
     return "Other (Corporate / Individual)"
 
@@ -118,11 +126,12 @@ def build_investor_table(rows):
             continue
         date, source, title, _category, link = row[:5]
         for name in extract_investors(title):
-            key = re.sub(r"[^a-z0-9]", "", name.lower())
-            entry = investors.setdefault(key, {
+            entry = investors.setdefault(_key(name), {
                 "name": name, "mentions": 0, "first": date, "latest": date,
                 "title": title, "link": link, "sources": set(),
             })
+            if len(name) > len(entry["name"]):
+                entry["name"] = name  # show the fullest spelling, e.g. "Peak XV Partners"
             entry["mentions"] += 1
             entry["sources"].add(source)
             if date < entry["first"]:
