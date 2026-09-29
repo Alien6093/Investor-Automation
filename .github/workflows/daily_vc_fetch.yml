@@ -41,4 +41,4 @@ jobs:
           SHEET_ID: ${{ secrets.SHEET_ID }}
           START_DATE: ${{ github.event.inputs.start_date }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
-        run: python fetch_vc_news.py
+        run: python scratch/probe.py
