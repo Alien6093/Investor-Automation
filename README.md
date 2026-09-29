@@ -11,13 +11,23 @@ into the **VC & Funding Tracker** Google Sheet.
   Investors come from the headline, or from the article's summary and opening
   paragraphs when the headline doesn't name them; several are separated by `; `.
   `—` means no investor was named (or the row isn't about one deal).
-- **Investors** tab: rebuilt every run from the Investors column: investor /
-  fund / accelerator name, type, number of deals, first and latest mention,
-  and the latest headline and link.
+- **Deals** tab: one row per funding round (Company, Amount, Round, Investors,
+  headline, link), newest first. Repeat coverage of the same round is counted once.
+- **Investors** tab: every investor / fund / accelerator named in a deal, with
+  type, number of deals, first and latest mention, and the latest headline.
+- **Accelerators** tab: accelerator / incubator programs seen in the news, with
+  the companies mentioned alongside them.
+- **Accelerator Startups** tab: companies in Y Combinator's 2026 batches (from
+  the public yc-oss.github.io directory data).
+
+All tabs except Sheet1 are rebuilt on every run, so edit Sheet1, not them.
 
 Sources: Entrackr, Inc42, YourStory, BW Businessworld, VCCircle, ET Tech,
-TechCrunch Venture, Crunchbase News, e27, Y Combinator blog. Sites that block
-automated requests (BW Businessworld) or have no archive feed are read through
+TechCrunch Venture, Crunchbase News, e27, Y Combinator blog, Indian Startup
+News, Startup Story Media, Livemint, Moneycontrol, Business Standard,
+DealStreetAsia, LinkedIn posts, plus Google News searches (any publisher) for
+accelerator cohorts, VC fund launches / closes and "led by" funding news.
+Sites that block automated requests or have no archive feed are read through
 Google News, so those rows link via `news.google.com`.
 
 ## Running it
