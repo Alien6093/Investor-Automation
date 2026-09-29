@@ -78,6 +78,32 @@ SOURCES = [
               '(venture OR VC OR startups)'},
     {"name": "Funding news", "type": "google_news", "any_publisher": True,
      "terms": '(startup OR startups) (raises OR raised OR funding) "led by"'},
+    # Global startup / VC / PE news
+    {"name": "EU-Startups", "type": "rss", "url": "https://www.eu-startups.com/feed/"},
+    {"name": "EU-Startups", "type": "wordpress", "base": "https://www.eu-startups.com"},
+    {"name": "Sifted", "type": "rss", "url": "https://sifted.eu/feed"},
+    {"name": "TechCrunch Startups", "type": "rss", "url": "https://techcrunch.com/category/startups/feed/"},
+    {"name": "Tech in Asia", "type": "rss", "url": "https://www.techinasia.com/feed"},
+    {"name": "Wamda", "type": "rss", "url": "https://www.wamda.com/feed"},
+    {"name": "Startup Daily", "type": "rss", "url": "https://www.startupdaily.net/feed/"},
+    {"name": "Startup Daily", "type": "wordpress", "base": "https://www.startupdaily.net"},
+    {"name": "The SaaS News", "type": "rss", "url": "https://www.thesaasnews.com/feed"},
+    {"name": "AlleyWatch", "type": "rss", "url": "https://www.alleywatch.com/feed/"},
+    {"name": "AlleyWatch", "type": "wordpress", "base": "https://www.alleywatch.com"},
+    {"name": "PE Hub", "type": "rss", "url": "https://www.pehub.com/feed/"},
+    {"name": "Private Equity Wire", "type": "rss", "url": "https://www.privateequitywire.co.uk/feed"},
+    {"name": "Ventureburn", "type": "rss", "url": "https://ventureburn.com/feed/"},
+    {"name": "Business Today", "type": "rss", "url": "https://www.businesstoday.in/rss/startups"},
+    # Sites that block automated requests: read through Google News
+    {"name": "FinSMEs", "type": "google_news", "site": "finsmes.com"},
+    {"name": "Tech Funding News", "type": "google_news", "site": "techfundingnews.com"},
+    {"name": "VentureBeat", "type": "google_news", "site": "venturebeat.com"},
+    {"name": "Financial Express", "type": "google_news", "site": "financialexpress.com"},
+    {"name": "Sifted", "type": "google_news", "site": "sifted.eu"},
+    {"name": "Tech in Asia", "type": "google_news", "site": "techinasia.com"},
+    # VC blogs / newsletters and accelerator programme announcements on LinkedIn articles
+    {"name": "LinkedIn Articles", "type": "google_news", "site": "linkedin.com/pulse", "strict": True,
+     "terms": '("venture capital" OR "VC fund" OR accelerator OR incubator OR "funding round" OR "first close")'},
 ]
 
 # Y Combinator batches published at yc-oss.github.io (public YC company directory data)
@@ -199,6 +225,8 @@ def fetch_wordpress(session, source, start):
             if resp is None or resp.status_code != 200:
                 print(f"[{source['name']}] WARNING: WordPress API returned "
                       f"{getattr(resp, 'status_code', 'no response')} for {window_start:%Y-%m-%d} page {page}")
+                if not articles and resp is not None and resp.status_code in (401, 403, 404):
+                    return articles  # API disabled on this site; the RSS source still covers new posts
                 break
             posts = resp.json()
             for post in posts:
@@ -534,7 +562,10 @@ def run():
     existing_titles = {title_key(row[2]) for row in existing_rows}
     new_rows = []
 
+    only = {name.strip().lower() for name in os.environ.get("ONLY_SOURCES", "").split(",") if name.strip()}
     for source in SOURCES:
+        if only and source["name"].lower() not in only:
+            continue
         try:
             articles = FETCHERS[source["type"]](session, source, start)
         except Exception as e:

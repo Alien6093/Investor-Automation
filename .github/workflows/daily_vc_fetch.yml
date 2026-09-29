@@ -10,6 +10,10 @@ on:
         description: 'Backfill from this date (YYYY-MM-DD). Leave empty for the last 3 days.'
         required: false
         default: ''
+      only_sources:
+        description: 'Only fetch these sources (comma-separated names, e.g. "EU-Startups,Sifted"). Leave empty for all.'
+        required: false
+        default: ''
       dry_run:
         description: 'Only print what would be added, do not write to the sheet'
         type: boolean
@@ -41,4 +45,5 @@ jobs:
           SHEET_ID: ${{ secrets.SHEET_ID }}
           START_DATE: ${{ github.event.inputs.start_date }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
-        run: python scratch/probe.py
+          ONLY_SOURCES: ${{ github.event.inputs.only_sources }}
+        run: python fetch_vc_news.py
