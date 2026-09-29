@@ -9,7 +9,8 @@ import re
 # Words that end an investor-name phrase
 _STOP = (
     r"(?:\s+(?:to|for|as|at|in|into|amid|with|via|on|after|ahead|while|that|who|which|"
-    r"and others|among others|others|valuing|valuation)\b"
+    r"and others|among others|others|valuing|valuation|has|have|had|will|would|is|was|are|were|said|says|"
+    r"also|himself|herself|themselves|this|through|under|over|since|during|among)\b"
     r"|\s+(?:and\s+)?(?:existing|other|new) investors(?=\s*(?:$|[.,;:]))"
     r"|\s+[-–—|:;(]|[?!;:(]|\.$|$)"
 )
@@ -29,7 +30,7 @@ _PATTERNS = [
     # "Peak XV's Surge programme selects 18 startups for 12th cohort"
     re.compile(r"^(?P<names>[^,:]+?)\s+(?:selects|picks|announces|unveils|opens applications)\b.*?\b(?:cohort|batch|startups for)\b", re.I),
     # "Aramco Ventures invests in ..." / "Blume Ventures backs ..."
-    re.compile(r"^(?P<names>[^,:]+?)\s+(?:invests|backs|bets on|doubles down on|picks up stake)\b", re.I),
+    re.compile(r"^(?P<names>[^:]+?)\s+(?:invests?|co-invests?|backs?|bets on|doubles down on|picks up stake)\b", re.I),
 ]
 
 # "Peak XV-backed Mosaic", "Virat Kohli-Backed WROGN"
@@ -58,7 +59,8 @@ def _key(name):
 _LEADING_JUNK = re.compile(
     r"^(?:its|the|a|an|existing investor|existing investors|investor|investors|vc firm|vc|"
     r"venture capital firm|investment firm|fund|global|us-based|india-based|singapore-based|"
-    r"early-stage vc|early stage vc|early-stage investor|clutch of|new investor)\s+", re.I
+    r"early-stage vc|early stage vc|early-stage investor|clutch of|new investor|including|includes|like|such as|"
+    r"marquee investors?|investors? like|angel investors?|angel investor)\s+", re.I
 )
 _AMOUNT = re.compile(r"(?:rs\.?|inr|usd|us\$|\$|₹|€|£)\s?[\d.,]+|\b[\d.,]+\s?(?:mn|million|cr|crore|bn|billion|lakh|k)\b", re.I)
 
@@ -72,8 +74,12 @@ def _clean(name):
     name = re.sub(r"[’']s$", "", name).strip(" '\"‘’“”,-")
     if not name or _AMOUNT.search(name):
         return None
-    # Must look like a proper name: some capital letter or digit (allows "pi Ventures")
-    if name.lower() in _NOT_NAMES or not re.search(r"[A-Z0-9]", name):
+    # Must look like a proper name: a capitalised word (allows "pi Ventures", "3one4 Capital")
+    if name.lower() in _NOT_NAMES or not re.search(r"(?:^|\s)[A-Z]", name):
+        return None
+    # Descriptive phrases ("defence technology startup X") have several lowercase words
+    lowercase_words = [w for w in name.split() if w[0].islower() and w not in ("of", "the", "and", "de", "for", "in")]
+    if len(lowercase_words) > 1:
         return None
     if len(name) < 2 or len(name) > 60 or len(name.split()) > 6:
         return None
@@ -87,7 +93,7 @@ def extract_investors(title):
         for match in pattern.finditer(title):
             for part in _SPLIT.split(match.group("names")):
                 name = _clean(part)
-                if name and name not in found:
+                if name and name.lower() not in [f.lower() for f in found]:
                     found.append(name)
     for match in _BACKED_PREFIX.finditer(title):
         # Only keep the capitalised words directly before "-backed"

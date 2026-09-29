@@ -24,24 +24,25 @@ ROUND = re.compile(
 _DESCRIPTOR = re.compile(
     r"^.*\b(?:startup|start-up|platform|brand|company|firm|maker|provider|marketplace|app|player|"
     r"unicorn|venture|operator|developer|manufacturer|lender|nbfc|fintech|edtech|healthtech|agritech|"
-    r"saas|chain|studio|label|network|solution|solutions|service|services|builder|specialist)s?\s+",
+    r"saas|chain|studio|label|network|solution|solutions|service|services|builder|specialist)s?,?\s+",
     re.I,
 )
 
-_RAISE_VERB = (r"(?:in talks to|looks to|set to|plans to|to) raise|raises|raised|raising|secures|secured|bags|bagged|gets|nets|receives|pockets|lands|"
+_RAISE_VERB = (r"(?:in talks to|looks to|set to|plans to|to) raise|raises|raised|secures|secured|bags|bagged|gets|nets|receives|pockets|lands|"
                r"closes|closed|mops up|garners|snags|scores|picks up|attracts|announces|completes")
 
 # Extra patterns that only make sense in article body sentences
 _BODY_PATTERNS = [
     re.compile(r"\b(?:joined by|investors? (?:include|including|such as|like)|along with)\s+(?P<names>.+?)" + _STOP, re.I),
     re.compile(r"^(?P<names>[^,]+?)\s+(?:co-)?led the (?:round|funding|investment|financing)", re.I),
-    re.compile(r"^(?:existing\s+|new\s+)?(?:investors?\s+)?(?P<names>[^,]+?(?:,[^,]+?)*)\s+(?:also\s+)?(?:participated|joined)\b", re.I),
+    re.compile(r"^(?:existing\s+|new\s+)?(?:investors?\s+)?(?P<names>[^,]{2,60}?(?:,[^,]{2,60}?)*)\s+(?:also\s+)?(?:participated|joined)\b", re.I),
     re.compile(r"\b(?:saw|with|had|also saw) (?:the )?participation (?:from|of)\s+(?P<names>.+?)" + _STOP, re.I),
 ]
 
 
 def extract_company(title):
     patterns = [
+        r"^[^,]+?(?:,[^,]+?)*\s+(?:back|backs|invest in|invests in)\s+(?P<co>.+?)\s+(?:in|with)\b",
         rf"^(?P<co>.+?)\s+(?:{_RAISE_VERB})\b",
         r"\b(?:leads?|co-leads?|invests?|backs?)\b.*?\b(?:in|into)\s+(?P<co>.+?)(?:\s+(?:to|for|as|amid|at)\b|[,:;]|$)",
         r"^[^,]+?\s+(?:invests in|backs)\s+(?P<co>.+?)(?:\s+(?:to|for|as|amid|at)\b|[,:;]|$)",
@@ -54,7 +55,8 @@ def extract_company(title):
         company = re.sub(r"^(?:exclusive|breaking|funding alert)\s*:\s*", "", company, flags=re.I)
         company = _DESCRIPTOR.sub("", company)
         company = re.sub(r"[’']s$", "", company).strip(" ,-'\"‘’“”")
-        if company and len(company.split()) <= 6 and re.search(r"[A-Z0-9]", company):
+        if (company and len(company.split()) <= 6 and re.search(r"[A-Za-z]", company)
+                and not AMOUNT.search(company)):
             return company
     return ""
 
@@ -72,11 +74,22 @@ def _investors_from_text(text):
     return found
 
 
+ROUNDUP = re.compile(r"\b(this week|weekly|roundup|round-up|biggest (?:funding )?rounds|funding rundown|top \d+|"
+                     r"week's|weeks|others raise|and more)\b", re.I)
+
+
+def is_single_deal(title):
+    """A headline about one company's round (not a roundup / essay / market story)."""
+    return bool(extract_company(title)) and not ROUNDUP.search(title)
+
+
 def extract_deal(title, text=""):
     """Return dict(company, amount, round, investors[list]) for an article."""
     investors = extract_investors(title)
-    company = extract_company(title)
-    if not investors and text:
+    company = extract_company(title) if not ROUNDUP.search(title) else ""
+    if not company and not investors:
+        return {"company": "", "amount": "", "round": "", "investors": []}
+    if not investors and text and company:
         investors = _investors_from_text(text)
     # The startup itself is sometimes caught as a name ("X raises from Y" in body text)
     if company:

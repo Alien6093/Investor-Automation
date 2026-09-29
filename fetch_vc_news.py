@@ -14,7 +14,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 from investor_extractor import build_investor_table, extract_investors, INVESTOR_HEADER
-from deal_extractor import extract_deal
+from deal_extractor import extract_deal, is_single_deal
 
 BASE_HEADER = ["Date", "Source", "Title", "Category", "Link"]
 DEAL_HEADER = ["Company", "Amount", "Round", "Investors"]
@@ -332,10 +332,30 @@ def get_start_date():
     return datetime.utcnow() - timedelta(days=DEFAULT_LOOKBACK_DAYS)
 
 
+WORDPRESS_BASES = [s["base"] for s in SOURCES if s["type"] == "wordpress"]
+
+
+def fetch_wordpress_text(session, url, base):
+    slug = url.rstrip("/").rsplit("/", 1)[-1]
+    try:
+        resp = session.get(f"{base}/wp-json/wp/v2/posts", params={"slug": slug, "_fields": "excerpt,content"}, timeout=20)
+        posts = resp.json() if resp.status_code == 200 else []
+    except (requests.RequestException, ValueError):
+        return ""
+    if not posts:
+        return ""
+    post = posts[0]
+    paragraphs = re.findall(r"(?is)<p[^>]*>(.*?)</p>", post.get("content", {}).get("rendered", ""))[:10]
+    return " ".join([clean_text(post.get("excerpt", {}).get("rendered", ""))] + [clean_text(p) for p in paragraphs])[:4000]
+
+
 def fetch_article_text(session, url):
     """Summary + opening paragraphs of an article, where investors are usually named."""
     if "news.google.com" in url:
         return ""  # Google News redirect links can't be resolved without a browser
+    for base in WORDPRESS_BASES:
+        if url.startswith(base):
+            return fetch_wordpress_text(session, url, base)
     try:
         resp = session.get(url, timeout=20)
     except requests.RequestException:
@@ -345,7 +365,8 @@ def fetch_article_text(session, url):
     page = resp.text
     parts = re.findall(r'<meta[^>]+(?:property="og:description"|name="description")[^>]+content="([^"]*)"', page)
     body = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", page)
-    parts += re.findall(r"(?is)<p[^>]*>(.*?)</p>", body)[:12]
+    # Skip short navigation / caption paragraphs
+    parts += [p for p in re.findall(r"(?is)<p[^>]*>(.*?)</p>", body) if len(clean_text(p)) > 60][:10]
     return " ".join(clean_text(part) for part in parts if part.strip())[:4000]
 
 
@@ -356,10 +377,8 @@ def add_deal_columns(session, rows):
         return 0
 
     def needs_article(row):
-        title, category, link = row[2], row[3], row[4]
-        return (not extract_investors(title)
-                and category in ("Startup Funding", "VC / Fund News", "Accelerator Program")
-                and "news.google.com" not in link)
+        title, link = row[2], row[4]
+        return not extract_investors(title) and is_single_deal(title) and "news.google.com" not in link
 
     to_fetch = [row[4] for row in todo if needs_article(row)]
     with ThreadPoolExecutor(max_workers=8) as pool:
