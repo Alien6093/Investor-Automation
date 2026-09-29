@@ -95,15 +95,15 @@ def clean_text(text):
 
 
 def get(session, url, **kwargs):
-    for attempt in range(3):
+    for attempt in range(5):
         try:
-            resp = session.get(url, timeout=30, **kwargs)
+            resp = session.get(url, timeout=60, **kwargs)
             if resp.status_code in (429, 500, 502, 503, 504):
-                time.sleep(2 * (attempt + 1))
+                time.sleep(5 * (attempt + 1))
                 continue
             return resp
         except requests.RequestException:
-            time.sleep(2 * (attempt + 1))
+            time.sleep(5 * (attempt + 1))
     return None
 
 
