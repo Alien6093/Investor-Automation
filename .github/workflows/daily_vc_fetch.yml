@@ -1,0 +1,30 @@
+name: Daily VC & Accelerator Fetcher
+
+on:
+  schedule:
+    # Runs at 04:30 UTC = 10:00 AM IST
+    - cron: '30 4 * * *'
+  workflow_dispatch:
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install feedparser gspread google-auth
+
+      - name: Run Fetcher
+        env:
+          GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+        run: python fetch_vc_news.py
