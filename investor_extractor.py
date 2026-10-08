@@ -30,7 +30,7 @@ _PATTERNS = [
     # "Peak XV's Surge programme selects 18 startups for 12th cohort"
     re.compile(r"^(?P<names>[^,:]+?)\s+(?:selects|picks|announces|unveils|opens applications)\b.*?\b(?:cohort|batch|startups for)\b", re.I),
     # "Aramco Ventures invests in ..." / "Blume Ventures backs ..."
-    re.compile(r"^(?P<names>[^:;]+?)\s+(?:invests? in|co-invests?|backs?(?=\s+[A-Z0-9])|bets on|doubles down on|picks up stake)\b"),
+    re.compile(r"^(?P<names>[^:;]+?)\s+(?:invests? in|co-invests?|backs?(?!\s+(?:to|from|on|in|up|down|off|out|away|into)\b)(?=\s+(?:[a-z][\w-]*\s+){0,4}[A-Z0-9])|bets on|doubles down on|picks up stake)\b"),
 ]
 
 # "Peak XV-backed Mosaic", "Virat Kohli-Backed WROGN"
@@ -46,6 +46,7 @@ _NOT_NAMES = {
     "domestic investors", "global investors", "institutional investors", "the company", "it", "fund",
     "the fund", "startup", "startups", "india", "us", "government", "govt", "series a", "series b",
     "seed round", "funding", "round", "new fund", "investment", "series c", "pre-series a", "debt",
+    "ceo", "cfo", "cto", "coo", "founder", "co-founder", "cofounder", "president", "chairman", "director",
     "crunchbase", "crunchbase news", "techcrunch", "inc42", "entrackr", "yourstory", "e27", "vccircle",
     "economic times", "et", "reuters", "bloomberg", "mint", "moneycontrol", "tracxn", "pitchbook",
     "vc", "vcs", "pe", "pe fund", "vc fund", "private equity", "venture", "ventures", "capital",
@@ -80,9 +81,14 @@ def _clean(name):
     name = re.sub(r"^.*\b(?:platform|startup|firm|company|brand|maker|provider|investor)s?\s+(?=[A-Z0-9])", "", name)
     # Trailing lowercase words: "Bertelsmann India Investments will" -> "Bertelsmann India Investments"
     name = re.sub(r"(?:\s+[a-z][\w-]*)+$", "", name)
+    if re.search(r"(?i)-based$", name) or re.match(r"(?i)(?:former|ex|current|then)\b", name):
+        return None
     if re.match(r"(?i)(?:at|in|on|for|with|from|by|as|after|during|this|that|these|those|our|their|his|her)\b", name):
         return None
     name = re.sub(r"[’']s$", "", name).strip(" '\"‘’“”,-")
+    name = re.sub(r"\b(\w+)\s+\1$", r"\1", name)  # "3one4 Capital Capital" -> "3one4 Capital"
+    if "%" in name:
+        return None
     if not name or _AMOUNT.search(name):
         return None
     # Must look like a proper name: a capitalised word (allows "pi Ventures", "3one4 Capital")
@@ -148,14 +154,20 @@ def build_investor_table(rows):
             continue
         date, source, title, _category, link = row[:5]
         if len(row) > 8 and row[8]:
-            names = [n.strip() for n in row[8].split(";") if n.strip() and n.strip() != "—"]
+            names = [_clean(n) for n in row[8].split(";") if n.strip() and n.strip() != "—"]
+            names = [n for n in names if n]
         else:
             names = extract_investors(title)
         for name in names:
             entry = investors.setdefault(_key(name), {
                 "name": name, "mentions": 0, "first": date, "latest": date,
-                "title": title, "link": link, "sources": set(),
+                "title": title, "link": link, "sources": set(), "sectors": {}, "social": 0,
             })
+            sectors = [t.strip() for t in (row[9] if len(row) > 9 else "").split(";") if t.strip()]
+            for sector in sectors:
+                entry["sectors"][sector] = entry["sectors"].get(sector, 0) + 1
+            if any(t in SOCIAL_SECTOR_NAMES for t in sectors):
+                entry["social"] += 1
             if len(name) > len(entry["name"]):
                 entry["name"] = name  # show the fullest spelling, e.g. "Peak XV Partners"
             entry["mentions"] += 1
@@ -176,11 +188,16 @@ def build_investor_table(rows):
             entry["title"],
             entry["link"],
             ", ".join(sorted(entry["sources"])),
+            entry["social"],
+            ", ".join(f"{name} ({count})" for name, count in
+                      sorted(entry["sectors"].items(), key=lambda kv: -kv[1])[:6]),
         ])
     return table
 
 
+from sectors import SOCIAL_SECTOR_NAMES  # noqa: E402  (sectors does not import this module)
+
 INVESTOR_HEADER = [
     "Investor / Fund", "Type", "Mentions", "First Seen", "Latest Mention",
-    "Latest Headline", "Latest Link", "Sources",
+    "Latest Headline", "Latest Link", "Sources", "Social / Creator Deals", "Sectors (deals)",
 ]

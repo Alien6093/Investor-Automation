@@ -5,10 +5,13 @@ Article rows: [date, source, title, category, link, company, amount, round, inve
 import re
 
 from investor_extractor import investor_type, _clean, _key
+from sectors import is_social
 
 NOT_FOUND = "—"
 
-DEALS_HEADER = ["Date", "Company", "Amount", "Round", "Investors", "Headline", "Source", "Link"]
+DEALS_HEADER = ["Date", "Company", "Amount", "Round", "Investors", "Sector", "Headline", "Source", "Link"]
+
+SOCIAL_HEADER = ["Date", "Sector", "Type", "Company", "Amount", "Round", "Investors", "Headline", "Source", "Link"]
 
 ACCELERATOR_HEADER = [
     "Program", "Mentions", "First Seen", "Latest Mention", "Latest Headline", "Latest Link",
@@ -76,7 +79,28 @@ def build_deals_table(rows):
     """One row per single-company deal that names its investors, newest first."""
     deals = [row for row in dedupe_deals(rows) if len(row) >= 9 and row[5] and row[8] and row[8] != NOT_FOUND]
     deals.sort(key=lambda row: row[0], reverse=True)
-    return [[row[0], row[5], row[6], row[7], row[8], row[2], row[1], row[4]] for row in deals]
+    return [[row[0], row[5], row[6], row[7], row[8], row[9] if len(row) > 9 else "", row[2], row[1], row[4]]
+            for row in deals]
+
+
+def build_social_table(rows):
+    """Everything about social media / creator economy / influencer marketing startups and investors:
+    funding rounds, investments, VC posts and accelerator cohorts, newest first."""
+    social = [row for row in dedupe_deals(rows) if len(row) > 9 and is_social(row[9])]
+    social.sort(key=lambda row: row[0], reverse=True)
+    table = []
+    for row in social:
+        sectors = "; ".join(t.strip() for t in row[9].split(";") if t.strip() and is_social(t))
+        if row[5] and row[8] != NOT_FOUND:
+            kind = "Deal (investors named)"
+        elif row[5]:
+            kind = "Deal"
+        elif row[3] == "Accelerator Program":
+            kind = "Accelerator / Program"
+        else:
+            kind = "VC / Industry news"
+        table.append([row[0], sectors, kind, row[5], row[6], row[7], row[8], row[2], row[1], row[4]])
+    return table
 
 
 def build_accelerator_table(rows):

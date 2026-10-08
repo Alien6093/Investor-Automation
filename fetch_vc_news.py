@@ -16,13 +16,15 @@ from google.oauth2.service_account import Credentials
 
 from investor_extractor import build_investor_table, extract_investors, INVESTOR_HEADER
 from deal_extractor import extract_deal, is_single_deal
-from summary_tabs import (build_deals_table, build_accelerator_table, dedupe_deals, DEALS_HEADER,
-                          ACCELERATOR_HEADER, _program_names as program_names)
+from sectors import tag_sectors
+from summary_tabs import (build_deals_table, build_accelerator_table, build_social_table, dedupe_deals,
+                          DEALS_HEADER, ACCELERATOR_HEADER, SOCIAL_HEADER, _program_names as program_names)
+from sectors import is_social
 
 YC_HEADER = ["Program", "Batch", "Company", "One-liner", "Industry", "Location", "Website", "YC Profile"]
 
 BASE_HEADER = ["Date", "Source", "Title", "Category", "Link"]
-DEAL_HEADER = ["Company", "Amount", "Round", "Investors"]
+DEAL_HEADER = ["Company", "Amount", "Round", "Investors", "Sector"]
 ARTICLE_HEADER = BASE_HEADER + DEAL_HEADER
 NOT_FOUND = "—"  # marks a row whose investors were looked for but not named
 INVESTORS_TAB = "Investors"
@@ -78,6 +80,55 @@ SOURCES = [
               '(venture OR VC OR startups)'},
     {"name": "Funding news", "type": "google_news", "any_publisher": True,
      "terms": '(startup OR startups) (raises OR raised OR funding) "led by"'},
+    # Global startup / VC / PE news
+    {"name": "EU-Startups", "type": "rss", "url": "https://www.eu-startups.com/feed/"},
+    {"name": "EU-Startups", "type": "wordpress", "base": "https://www.eu-startups.com"},
+    {"name": "Sifted", "type": "rss", "url": "https://sifted.eu/feed"},
+    {"name": "TechCrunch Startups", "type": "rss", "url": "https://techcrunch.com/category/startups/feed/"},
+    {"name": "Tech in Asia", "type": "rss", "url": "https://www.techinasia.com/feed"},
+    {"name": "Wamda", "type": "rss", "url": "https://www.wamda.com/feed"},
+    {"name": "Startup Daily", "type": "rss", "url": "https://www.startupdaily.net/feed/"},
+    {"name": "Startup Daily", "type": "wordpress", "base": "https://www.startupdaily.net"},
+    {"name": "The SaaS News", "type": "rss", "url": "https://www.thesaasnews.com/feed"},
+    {"name": "AlleyWatch", "type": "rss", "url": "https://www.alleywatch.com/feed/"},
+    {"name": "AlleyWatch", "type": "wordpress", "base": "https://www.alleywatch.com"},
+    {"name": "PE Hub", "type": "rss", "url": "https://www.pehub.com/feed/"},
+    {"name": "Private Equity Wire", "type": "rss", "url": "https://www.privateequitywire.co.uk/feed"},
+    {"name": "Ventureburn", "type": "rss", "url": "https://ventureburn.com/feed/"},
+    {"name": "Business Today", "type": "rss", "url": "https://www.businesstoday.in/rss/startups"},
+    # Sites that block automated requests: read through Google News
+    {"name": "FinSMEs", "type": "google_news", "site": "finsmes.com"},
+    {"name": "Tech Funding News", "type": "google_news", "site": "techfundingnews.com"},
+    {"name": "VentureBeat", "type": "google_news", "site": "venturebeat.com"},
+    {"name": "Financial Express", "type": "google_news", "site": "financialexpress.com"},
+    {"name": "Sifted", "type": "google_news", "site": "sifted.eu"},
+    {"name": "Tech in Asia", "type": "google_news", "site": "techinasia.com"},
+    # VC blogs / newsletters and accelerator programme announcements on LinkedIn articles
+    {"name": "LinkedIn Articles", "type": "google_news", "site": "linkedin.com/pulse", "strict": True,
+     "terms": '("venture capital" OR "VC fund" OR accelerator OR incubator OR "funding round" OR "first close")'},
+    # Social media / creator economy / influencer marketing industry news
+    {"name": "Net Influencer", "type": "rss", "url": "https://www.netinfluencer.com/feed/"},
+    {"name": "Net Influencer", "type": "wordpress", "base": "https://www.netinfluencer.com"},
+    {"name": "Influencer Marketing Hub", "type": "rss", "url": "https://influencermarketinghub.com/feed/"},
+    {"name": "Social Media Today", "type": "rss", "url": "https://www.socialmediatoday.com/feeds/news/"},
+    {"name": "Digiday", "type": "rss", "url": "https://digiday.com/feed/"},
+    {"name": "Adweek", "type": "rss", "url": "https://www.adweek.com/feed/"},
+    {"name": "afaqs", "type": "rss", "url": "https://www.afaqs.com/rss"},
+    {"name": "MediaNews4U", "type": "rss", "url": "https://www.medianews4u.com/feed/"},
+    {"name": "MediaNews4U", "type": "wordpress", "base": "https://www.medianews4u.com"},
+    {"name": "Exchange4media", "type": "google_news", "site": "exchange4media.com"},
+    {"name": "Storyboard18", "type": "google_news", "site": "storyboard18.com"},
+    {"name": "Tubefilter", "type": "google_news", "site": "tubefilter.com"},
+    {"name": "Social & Creator deals", "type": "google_news", "any_publisher": True, "strict": True,
+     "terms": '("influencer marketing" OR "creator economy" OR "creator platform" OR "social media" OR '
+              '"social commerce" OR "short video" OR "content creators") '
+              '(raises OR "seed round" OR "pre-seed" OR "series a" OR "series b" OR "led by" OR "invests in" OR backs)'},
+    {"name": "Social & Creator VC views", "type": "google_news", "any_publisher": True,
+     "terms": '("creator economy" OR "influencer marketing" OR "social commerce" OR "social media startups") '
+              '("venture capital" OR VCs OR "why we invested" OR "investment thesis" OR investors)'},
+    {"name": "LinkedIn", "type": "google_news", "site": "linkedin.com", "strict": True,
+     "terms": '("influencer marketing" OR "creator economy" OR "social media" OR "social commerce") '
+              '(raised OR "funding round" OR "led by" OR "invested in" OR "seed round")'},
 ]
 
 # Y Combinator batches published at yc-oss.github.io (public YC company directory data)
@@ -89,18 +140,26 @@ STRONG_KEYWORDS = re.compile(
     r'venture capital|venture capitalist|vc firm|vc fund|venture fund|corporate vc|corporate venture|cvc|'
     r'flipkart ventures|angel investors?|angel network|angel round|family office|limited partners?|'
     r'first close|final close|launches fund|new fund|maiden fund|fund size|accelerator|incubator|'
-    r'cohort|demo day|startup program|startup programme|y combinator|techstars|lead investor)\b',
+    r'cohort|demo day|startup program|startup programme|y combinator|techstars|lead investor|'
+    # VC blog posts and deal headlines worded as an investment rather than a raise
+    r'invest(?:s|ed)? in|co-invest(?:s|ed)?|why we invested|our investment in|'
+    r'(?:leads|led|co-leads|co-led) [^.]{0,40}?\bround|vcs?)\b',
     re.IGNORECASE
 )
 
 # Broader terms that only count when the article is not stock-market / public-finance news
 WEAK_KEYWORDS = re.compile(
-    r'\b(funded|raises|raised|raising|raise|backed by|investors?|valuation|unicorn|corpus)\b',
+    r'\b(funded|raises|raised|raising|raise|backed by|investors?|valuation|unicorn|corpus|'
+    r'bags|bagged|nets|netted|secures|secured|snags|pockets|backs|backed|invests)\b',
     re.IGNORECASE
 )
 EXCLUDE_KEYWORDS = re.compile(
     r'\b(shares?|stocks?|sensex|nifty|dalal street|etfs?|mutual funds?|disinvestment|ipo|listing|'
-    r'dividend|bonds?|q[1-4] results|quarterly results|govt|government|qip|ncds?|rights issue)\b',
+    r'dividend|bonds?|q[1-4] results|quarterly results|govt|government|qip|ncds?|rights issue|'
+    r'target price|price target|brokerage|sgb|sovereign gold|gold|silver|sip|nav|redemption|tax|'
+    r'sebi|rbi|regulators?|regulation|warns?|elections?|polls?|award|wins|order|contract|tender|'
+    r'court|ban|bans|banned|minister|ministry|parliament|assembly|police|lawsuit|sues|concerns?|'
+    r'ratings?|rated|upgrades?|downgrades?|outlook)\b',
     re.IGNORECASE
 )
 
@@ -120,7 +179,8 @@ def categorize_article(text):
     text_lower = text.lower()
     if any(term in text_lower for term in ["accelerator", "cohort", "demo day", "incubator", "startup program"]):
         return "Accelerator Program"
-    elif re.search(r"pre-seed|seed|series [a-f]|raise|funding|round", text_lower):
+    elif re.search(r"pre-seed|seed|series [a-f]|raise|funding|round|\b(?:backs|invests in|invested in|bags|"
+                   r"secures|nets|snags|pockets)\b", text_lower):
         return "Startup Funding"
     elif any(term in text_lower for term in ["venture capital", "vc", "fund", "flipkart ventures", "family office", "angel"]):
         return "VC / Fund News"
@@ -199,6 +259,8 @@ def fetch_wordpress(session, source, start):
             if resp is None or resp.status_code != 200:
                 print(f"[{source['name']}] WARNING: WordPress API returned "
                       f"{getattr(resp, 'status_code', 'no response')} for {window_start:%Y-%m-%d} page {page}")
+                if not articles and resp is not None and resp.status_code in (401, 403, 404):
+                    return articles  # API disabled on this site; the RSS source still covers new posts
                 break
             posts = resp.json()
             for post in posts:
@@ -462,6 +524,19 @@ def add_deal_columns(session, rows):
     return len(todo)
 
 
+def add_sector_column(rows):
+    """Fill Sector (column J) from the headline; returns how many rows changed."""
+    changed = 0
+    for row in rows:
+        sector = "; ".join(tag_sectors(row[2]))
+        while len(row) < 10:
+            row.append("")
+        if row[9] != sector:
+            row[9] = sector
+            changed += 1
+    return changed
+
+
 def title_key(title):
     return re.sub(r"[^a-z0-9]", "", title.lower())[:90]
 
@@ -517,16 +592,22 @@ def run():
             sheet.insert_row(ARTICLE_HEADER, 1)
             sheet.freeze(rows=1)
             print("Added header row to the articles tab.")
-        elif all_values[0][:9] != ARTICLE_HEADER:
+        elif all_values[0][:len(ARTICLE_HEADER)] != ARTICLE_HEADER:
             sheet.update([ARTICLE_HEADER], "A1")
-            print("Extended header row with Company / Amount / Round / Investors.")
+            print("Extended header row with " + " / ".join(DEAL_HEADER) + ".")
     existing_rows = [row for row in (all_values[1:] if has_header else all_values) if any(row[:5])]
 
-    # Fill deal columns for existing rows that don't have them yet (first run: the whole backfill)
+    # Fill deal columns for existing rows that don't have them yet (first run: the whole backfill).
+    # REFRESH_DEALS=true re-extracts them for every row, e.g. after the extraction rules improve.
+    if os.environ.get("REFRESH_DEALS", "").lower() == "true":
+        for row in existing_rows:
+            del row[5:]
+        print("Re-extracting Company / Amount / Round / Investors for all existing rows.")
     filled = add_deal_columns(session, existing_rows)
-    if filled and not dry_run:
-        sheet.update([row[5:9] for row in existing_rows], f"F2:I{len(existing_rows) + 1}")
-        print(f"Filled deal columns for {filled} existing rows.")
+    sectors_changed = add_sector_column(existing_rows)
+    if (filled or sectors_changed) and not dry_run:
+        sheet.update([row[5:10] for row in existing_rows], f"F2:J{len(existing_rows) + 1}")
+        print(f"Filled deal columns for {filled} and sectors for {sectors_changed} existing rows.")
 
     # Existing links (column E) and headlines, used to avoid duplicate rows. The same story
     # can arrive twice (e.g. directly from Entrackr and again through Google News).
@@ -534,7 +615,10 @@ def run():
     existing_titles = {title_key(row[2]) for row in existing_rows}
     new_rows = []
 
+    only = {name.strip().lower() for name in os.environ.get("ONLY_SOURCES", "").split(",") if name.strip()}
     for source in SOURCES:
+        if only and source["name"].lower() not in only:
+            continue
         try:
             articles = FETCHERS[source["type"]](session, source, start)
         except Exception as e:
@@ -569,6 +653,7 @@ def run():
 
     new_rows.sort(key=lambda row: row[0])
     add_deal_columns(session, new_rows)
+    add_sector_column(new_rows)
     if new_rows and dry_run:
         print(f"DRY RUN: would add {len(new_rows)} rows.")
     elif new_rows:
@@ -588,8 +673,12 @@ def run():
         for row in all_rows[:: max(1, len(all_rows) // 60)]:
             print("   ", " | ".join([row[2][:70]] + row[5:9]))
 
+    social = build_social_table(all_rows)
+    print(f"Social / creator / influencer rows: {sum(1 for row in all_rows if is_social(row[9]))} "
+          f"({len(social)} after merging repeat coverage)")
     tabs = [
         ("Deals", DEALS_HEADER, build_deals_table(all_rows)),
+        ("Social & Creator", SOCIAL_HEADER, social),
         (INVESTORS_TAB, INVESTOR_HEADER, build_investor_table(dedupe_deals(all_rows))),
         ("Accelerators", ACCELERATOR_HEADER, build_accelerator_table(all_rows)),
         ("Accelerator Startups", YC_HEADER, fetch_yc_companies(session)),
