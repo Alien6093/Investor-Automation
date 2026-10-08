@@ -158,7 +158,8 @@ EXCLUDE_KEYWORDS = re.compile(
     r'dividend|bonds?|q[1-4] results|quarterly results|govt|government|qip|ncds?|rights issue|'
     r'target price|price target|brokerage|sgb|sovereign gold|gold|silver|sip|nav|redemption|tax|'
     r'sebi|rbi|regulators?|regulation|warns?|elections?|polls?|award|wins|order|contract|tender|'
-    r'court|ban|bans|banned|minister|ministry|parliament|assembly|police|lawsuit|sues|concerns?)\b',
+    r'court|ban|bans|banned|minister|ministry|parliament|assembly|police|lawsuit|sues|concerns?|'
+    r'ratings?|rated|upgrades?|downgrades?|outlook)\b',
     re.IGNORECASE
 )
 

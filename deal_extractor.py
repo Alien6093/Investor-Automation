@@ -63,6 +63,12 @@ def extract_company(title):
                     r"why|how|what|when|where|who|should|can|could|is|are|will|would|does|do|here)\b", company):
             continue
         company = re.sub(r"[’']s$", "", company).strip(" ,-'\"‘’“”")
+        company = re.sub(r"^.*\b(?:exec|executive|founder|co-?founder|ceo|cto|alum|alumni)s?\s+(?=[A-Z])", "", company)
+        # Sentence fragments from posts ("Between people being", "Flights are booked and")
+        lowercase = [w for w in company.split()[1:] if w[:1].islower() and w not in ("and", "of", "the", "&", "for")]
+        if len(lowercase) >= 2 or re.match(r"(?i)(?:between|after|before|during|since|when|while|if|as|at|"
+                                           r"for|from|in|on|to|with|top|best|flights?)\b", company):
+            continue
         # A bare description ("short-video app") is not a company name
         if re.fullmatch(r"[a-z0-9 -]+\s(?:app|platform|startup|company|brand|firm|player)s?", company):
             continue

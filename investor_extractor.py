@@ -46,6 +46,7 @@ _NOT_NAMES = {
     "domestic investors", "global investors", "institutional investors", "the company", "it", "fund",
     "the fund", "startup", "startups", "india", "us", "government", "govt", "series a", "series b",
     "seed round", "funding", "round", "new fund", "investment", "series c", "pre-series a", "debt",
+    "ceo", "cfo", "cto", "coo", "founder", "co-founder", "cofounder", "president", "chairman", "director",
     "crunchbase", "crunchbase news", "techcrunch", "inc42", "entrackr", "yourstory", "e27", "vccircle",
     "economic times", "et", "reuters", "bloomberg", "mint", "moneycontrol", "tracxn", "pitchbook",
     "vc", "vcs", "pe", "pe fund", "vc fund", "private equity", "venture", "ventures", "capital",
@@ -80,6 +81,8 @@ def _clean(name):
     name = re.sub(r"^.*\b(?:platform|startup|firm|company|brand|maker|provider|investor)s?\s+(?=[A-Z0-9])", "", name)
     # Trailing lowercase words: "Bertelsmann India Investments will" -> "Bertelsmann India Investments"
     name = re.sub(r"(?:\s+[a-z][\w-]*)+$", "", name)
+    if re.search(r"(?i)-based$", name) or re.match(r"(?i)(?:former|ex|current|then)\b", name):
+        return None
     if re.match(r"(?i)(?:at|in|on|for|with|from|by|as|after|during|this|that|these|those|our|their|his|her)\b", name):
         return None
     name = re.sub(r"[’']s$", "", name).strip(" '\"‘’“”,-")
