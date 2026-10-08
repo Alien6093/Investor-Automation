@@ -51,4 +51,4 @@ jobs:
           DRY_RUN: ${{ github.event.inputs.dry_run }}
           ONLY_SOURCES: ${{ github.event.inputs.only_sources }}
           REFRESH_DEALS: ${{ github.event.inputs.refresh_deals }}
-        run: python scratch/probe.py
+        run: python fetch_vc_news.py

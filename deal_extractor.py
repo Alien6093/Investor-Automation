@@ -63,6 +63,9 @@ def extract_company(title):
                     r"why|how|what|when|where|who|should|can|could|is|are|will|would|does|do|here)\b", company):
             continue
         company = re.sub(r"[’']s$", "", company).strip(" ,-'\"‘’“”")
+        # A bare description ("short-video app") is not a company name
+        if re.fullmatch(r"[a-z0-9 -]+\s(?:app|platform|startup|company|brand|firm|player)s?", company):
+            continue
         if (company and len(company.split()) <= 6 and re.search(r"[A-Za-z]", company)
                 and not AMOUNT.search(company)):
             return company

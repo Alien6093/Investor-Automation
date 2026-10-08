@@ -30,7 +30,7 @@ _PATTERNS = [
     # "Peak XV's Surge programme selects 18 startups for 12th cohort"
     re.compile(r"^(?P<names>[^,:]+?)\s+(?:selects|picks|announces|unveils|opens applications)\b.*?\b(?:cohort|batch|startups for)\b", re.I),
     # "Aramco Ventures invests in ..." / "Blume Ventures backs ..."
-    re.compile(r"^(?P<names>[^:;]+?)\s+(?:invests? in|co-invests?|backs?(?=\s+[A-Z0-9])|bets on|doubles down on|picks up stake)\b"),
+    re.compile(r"^(?P<names>[^:;]+?)\s+(?:invests? in|co-invests?|backs?(?!\s+(?:to|from|on|in|up|down|off|out|away|into)\b)(?=\s+(?:[a-z][\w-]*\s+){0,4}[A-Z0-9])|bets on|doubles down on|picks up stake)\b"),
 ]
 
 # "Peak XV-backed Mosaic", "Virat Kohli-Backed WROGN"
@@ -158,8 +158,13 @@ def build_investor_table(rows):
         for name in names:
             entry = investors.setdefault(_key(name), {
                 "name": name, "mentions": 0, "first": date, "latest": date,
-                "title": title, "link": link, "sources": set(),
+                "title": title, "link": link, "sources": set(), "sectors": {}, "social": 0,
             })
+            sectors = [t.strip() for t in (row[9] if len(row) > 9 else "").split(";") if t.strip()]
+            for sector in sectors:
+                entry["sectors"][sector] = entry["sectors"].get(sector, 0) + 1
+            if any(t in SOCIAL_SECTOR_NAMES for t in sectors):
+                entry["social"] += 1
             if len(name) > len(entry["name"]):
                 entry["name"] = name  # show the fullest spelling, e.g. "Peak XV Partners"
             entry["mentions"] += 1
@@ -180,11 +185,16 @@ def build_investor_table(rows):
             entry["title"],
             entry["link"],
             ", ".join(sorted(entry["sources"])),
+            entry["social"],
+            ", ".join(f"{name} ({count})" for name, count in
+                      sorted(entry["sectors"].items(), key=lambda kv: -kv[1])[:6]),
         ])
     return table
 
 
+from sectors import SOCIAL_SECTOR_NAMES  # noqa: E402  (sectors does not import this module)
+
 INVESTOR_HEADER = [
     "Investor / Fund", "Type", "Mentions", "First Seen", "Latest Mention",
-    "Latest Headline", "Latest Link", "Sources",
+    "Latest Headline", "Latest Link", "Sources", "Social / Creator Deals", "Sectors (deals)",
 ]
