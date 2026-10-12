@@ -10,13 +10,14 @@ Env: GCP_SERVICE_ACCOUNT_KEY, SHEET_ID (optional), GITHUB_EVENT_NAME (set by Act
 RUN_REASON (who started it), DRY_RUN=true (print instead of writing).
 """
 import os
+import re
 import time
 import traceback
 from datetime import datetime
 
 import requests
 
-from event_sources import FETCHERS, IST
+from event_sources import FETCHERS, IST, set_deadline
 from events_sheet import get_tab, merge_events
 from fetch_vc_news import HEADERS, setup_google_sheet
 
@@ -46,6 +47,7 @@ def collect(today, budget_minutes=COLLECT_BUDGET_MINUTES):
     session = requests.Session()
     session.headers.update(HEADERS)
     deadline = time.monotonic() + budget_minutes * 60
+    set_deadline(deadline)  # every request stops once the time is up, not just between sources
     events, notes = [], []
     for name, fetcher in FETCHERS:
         if time.monotonic() > deadline:
@@ -80,6 +82,15 @@ def run():
         label = reason or started_by
     print(f"Collecting events ({label}; {now:%Y-%m-%d %H:%M} IST)")
 
+    # The log row is written first ("running") and completed at the end, so a run that GitHub
+    # stops part-way still shows up (and still counts as today's run for the fallback)
+    log_row = None
+    if not dry_run:
+        response = log_tab.append_row([now.strftime("%Y-%m-%d %H:%M"), label[:100], "", "", "", "running…"],
+                                      value_input_option="RAW", insert_data_option="INSERT_ROWS", table_range="A1")
+        match = re.search(r"![A-Z]+(\d+)", (response or {}).get("updates", {}).get("updatedRange", ""))
+        log_row = int(match.group(1)) if match else None
+
     events, notes, counts = [], [], None
     try:
         events, notes = collect(now.date())
@@ -96,11 +107,12 @@ def run():
         raise
     finally:
         if not dry_run:
-            log_tab.append_row(
-                [now.strftime("%Y-%m-%d %H:%M"), label[:100], len(events), counts["new"] if counts else "",
-                 counts["updated"] if counts else "", "; ".join(notes)[:500]],
-                value_input_option="RAW", insert_data_option="INSERT_ROWS", table_range="A1",
-            )
+            row = [now.strftime("%Y-%m-%d %H:%M"), label[:100], len(events), counts["new"] if counts else "",
+                   counts["updated"] if counts else "", "; ".join(notes)[:500] or "done"]
+            if log_row:
+                log_tab.update([row], f"A{log_row}:F{log_row}", value_input_option="RAW")
+            else:
+                log_tab.append_row(row, value_input_option="RAW", insert_data_option="INSERT_ROWS", table_range="A1")
 
 
 if __name__ == "__main__":

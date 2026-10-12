@@ -18,12 +18,44 @@ from email.utils import parsedate_to_datetime
 from urllib.parse import quote, quote_plus, urljoin, urlparse
 
 import feedparser
+import requests
 
 from event_rules import (event_index, find_city, find_city_near, find_event_date, find_organizer, india_signal,
                          is_event_topic, is_india_event, pick_registration_link)
-from fetch_vc_news import SOURCES, clean_text, fetch_rss, fetch_wordpress, get
+from fetch_vc_news import SOURCES, clean_text, fetch_rss, fetch_wordpress
 
 IST = timezone(timedelta(hours=5, minutes=30))
+
+# Collection deadline (set by fetch_events.collect). Every request checks it, so a site that
+# stalls or refuses requests can't hold the job past its time limit.
+_DEADLINE = None
+
+
+def set_deadline(monotonic_deadline):
+    global _DEADLINE
+    _DEADLINE = monotonic_deadline
+
+
+def time_up():
+    return _DEADLINE is not None and time.monotonic() > _DEADLINE
+
+
+def get(session, url, attempts=2, timeout=20, **kwargs):
+    """GET with a short timeout and one retry (the funding-news helper retries 5 times with
+    long waits, far too slow for the many requests made here). None when out of time."""
+    for attempt in range(attempts):
+        if time_up():
+            return None
+        try:
+            resp = session.get(url, timeout=timeout, **kwargs)
+            if resp.status_code in (429, 500, 502, 503, 504) and attempt + 1 < attempts:
+                time.sleep(3)
+                continue
+            return resp
+        except requests.RequestException:
+            if attempt + 1 < attempts:
+                time.sleep(3)
+    return None
 
 LUMA_CITIES = ["bengaluru", "mumbai", "delhi", "hyderabad", "pune", "chennai", "kolkata", "ahmedabad", "jaipur"]
 MEETUP_CITIES = ["Bangalore", "Mumbai", "New Delhi", "Hyderabad", "Pune", "Chennai", "Kolkata", "Ahmedabad", "Gurgaon", "Noida"]
@@ -171,6 +203,8 @@ def events_from_jsonld(html, source, page_url, today):
 def fetch_luma(session, today):
     found = []
     for city in LUMA_CITIES:
+        if time_up():
+            break
         resp = get(session, f"https://lu.ma/{city}")
         if resp is None or resp.status_code != 200:
             print(f"[Luma] WARNING: {city} page returned {getattr(resp, 'status_code', 'no response')}")
@@ -213,6 +247,8 @@ def fetch_meetup(session, today):
     found = []
     for city in MEETUP_CITIES:
         for keyword in MEETUP_KEYWORDS:
+            if time_up():
+                return found
             url = (f"https://www.meetup.com/find/?keywords={quote_plus(keyword)}"
                    f"&location=in--{quote(city)}&source=EVENTS")
             resp = get(session, url)
@@ -228,6 +264,8 @@ def fetch_allevents(session, today):
     found = []
     for city in ALLEVENTS_CITIES:
         for category in ALLEVENTS_CATEGORIES:
+            if time_up():
+                return found
             url = f"https://allevents.in/{city}/{category}"
             resp = get(session, url)
             if resp is None or resp.status_code != 200:
@@ -370,6 +408,8 @@ def fetch_article(session, url):
 
 def _news_candidate(session, title, summary, link, publisher, published, today):
     """Read the article to find the event date, city and registration link."""
+    if time_up():
+        return None
     if not is_event_topic(f"{title} {summary}"):
         return None
     url = link
@@ -391,6 +431,8 @@ def _news_candidate(session, title, summary, link, publisher, published, today):
 def fetch_google_news_events(session, today):
     entries = []
     for query in GOOGLE_NEWS_EVENT_QUERIES:
+        if time_up():
+            break
         url = f"https://news.google.com/rss/search?q={quote_plus(query + ' when:7d')}&hl=en-IN&gl=IN&ceid=IN:en"
         resp = get(session, url)
         if resp is None or resp.status_code != 200:
@@ -419,6 +461,8 @@ def fetch_news_site_events(session, today):
     for source in SOURCES:
         if source["name"] not in NEWS_SOURCE_NAMES or source["type"] not in ("rss", "wordpress"):
             continue
+        if time_up():
+            break
         try:
             fetched = (fetch_rss if source["type"] == "rss" else fetch_wordpress)(session, source, start)
         except Exception as e:
