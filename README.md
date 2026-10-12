@@ -22,6 +22,27 @@ into the **VC & Funding Tracker** Google Sheet.
 
 All tabs except Sheet1 are rebuilt on every run, so edit Sheet1, not them.
 
+## Events tab (fetch_events.py)
+
+Upcoming India-only funding events, investor meets, demo days, pitch events and
+startup-investor networking, one row per event:
+`Event name | Event date | City / Online | Organizer | Registration link | Sources | Links | Author profile URLs | First added | Last seen`.
+
+- Sources: Luma, Meetup, AllEvents, Konfhub, Commudle, Headstart, event coverage
+  in Google News (India edition) and the India news sites above. The Chrome
+  extension (master-extension repo) adds events from LinkedIn, X, Reddit and the
+  event sites that block GitHub's servers (Eventbrite, District, 10times, TiE, Townscript).
+- The same event seen in several places is one row: rows are matched by
+  registration / event link, or by event name + date, and the new source, link
+  and author are added to that row.
+- Only events dated today or later, found in posts / articles from the last 7 days.
+- Event news goes to the Events tab only: once an article is in Events, the
+  funding-news run doesn't add it to Sheet1.
+- Runs 3 times a day at random times between 9 AM and 7 PM IST, 2 to 3 hours
+  apart (`.github/workflows/events_fetch.yml`). Each run is logged in the
+  **Events Run Log** tab, which the schedule uses to catch up missed runs.
+  **Actions → Events Fetcher → Run workflow** collects right away.
+
 Sources: Entrackr, Inc42, YourStory, BW Businessworld, VCCircle, ET Tech,
 TechCrunch Venture, Crunchbase News, e27, Y Combinator blog, Indian Startup
 News, Startup Story Media, Livemint, Moneycontrol, Business Standard,
@@ -48,3 +69,5 @@ Repository secrets (Settings → Secrets and variables → Actions):
   with the service account's email as Editor.
 - `SHEET_ID` (optional): the ID from the sheet URL. Without it the sheet is
   found by its name.
+
+Tests: `python -m unittest discover -s tests -t .`
