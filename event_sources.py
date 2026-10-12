@@ -5,7 +5,7 @@ Each fetcher returns candidate dicts:
 Only upcoming events in India that match event_rules.is_event_topic are kept.
 
 Event sites read here (reachable from GitHub's servers): Luma, Meetup, AllEvents,
-Konfhub, Commudle, Headstart. Eventbrite, District, 10times, TiE and Townscript
+Konfhub, Commudle, Headstart. Eventbrite and 10times
 block GitHub's servers, so the Chrome extension visits those instead.
 """
 import html
