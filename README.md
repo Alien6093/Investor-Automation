@@ -32,24 +32,22 @@ startup-investor networking, one row per event:
   in Google News (India edition) and the India news sites above. The Chrome
   extension (master-extension repo) adds events from LinkedIn, X, Reddit and the
   event sites that block GitHub's servers (Eventbrite, District, 10times, TiE, Townscript).
-- The same event seen in several places is one row: rows are matched by
-  registration / event link, or by event name + date, and the new source, link
-  and author are added to that row.
-- Only events dated today or later, found in posts / articles from the last 7 days.
-- Event news goes to the Events tab only: once an article is in Events, the
-  funding-news run doesn't add it to Sheet1.
-- Runs 3 times a day at random times between 9 AM and 7 PM IST, 2 to 3 hours
-  apart (`.github/workflows/events_fetch.yml`). Each run is logged in the
-  **Events Run Log** tab, which the schedule uses to catch up missed runs.
-  **Actions → Events Fetcher → Run workflow** collects right away.
-
-Sources: Entrackr, Inc42, YourStory, BW Businessworld, VCCircle, ET Tech,
-TechCrunch Venture, Crunchbase News, e27, Y Combinator blog, Indian Startup
-News, Startup Story Media, Livemint, Moneycontrol, Business Standard,
-DealStreetAsia, LinkedIn posts, plus Google News searches (any publisher) for
-accelerator cohorts, VC fund launches / closes and "led by" funding news.
-Sites that block automated requests or have no archive feed are read through
-Google News, so those rows link via `news.google.com`.
+- The same event seen in several places is one row: rows are matched by an
+  event-specific link (registration / event page; not an organiser page, linktr.ee
+  or short link) with the same date, or by event name + date. luma.com / lu.ma and
+  eventbrite.co.in / .com count as the same site.
+- Only events dated today or later, held in India (an event abroad is skipped even
+  when Indian founders are mentioned).
+- Event news goes to the Events tab only: the funding-news run skips articles that
+  are already in Events (the Google News link is stored next to the publisher's).
+- **When it runs:** the Chrome extension starts this workflow at each of its 3 daily
+  runs (random times between 9 AM and 7 PM IST), so both collect at the same times.
+  GitHub's own schedule starts this repo's jobs hours late, so it is only a fallback:
+  once a day it collects if the extension started no run that day. Every run is logged
+  in the **Events Run Log** tab. **Actions → Events Fetcher → Run workflow** collects
+  right away.
+- Row 1 of the Events tab must stay the header: rows are written by position, so the
+  job stops instead of writing when the header was moved.
 
 ## Running it
 

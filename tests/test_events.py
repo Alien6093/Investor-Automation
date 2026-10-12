@@ -1,9 +1,11 @@
 import unittest
 from datetime import date, datetime, timedelta
 
-from event_rules import find_city, find_event_date, india_signal, is_event_topic
+from event_rules import (event_index, find_city, find_city_near, find_event_date, india_signal, is_event_specific_link,
+                         is_event_topic, is_india_event, link_key, pick_registration_link)
+from event_sources import _article_body
 from events_sheet import EVENTS_HEADER, EventIndex, LINKS, SOURCES, LAST_SEEN
-from fetch_events import IST, MAX_GAP, MIN_GAP, WINDOW_END, WINDOW_START, daily_plan, due_slot
+from fetch_events import IST, runs_logged_today
 
 
 class TopicTests(unittest.TestCase):
@@ -56,29 +58,53 @@ class DateTests(unittest.TestCase):
         self.assertEqual(find_event_date("Apply by 20 Oct. Demo day on 30 Oct", self.ref), date(2026, 10, 30))
 
 
-class ScheduleTests(unittest.TestCase):
-    def test_plan_bounds(self):
-        day = date(2026, 1, 1)
-        for i in range(400):
-            plan = daily_plan(day + timedelta(days=i))
-            self.assertEqual(len(plan), 3)
-            self.assertGreaterEqual(plan[0], WINDOW_START)
-            self.assertLessEqual(plan[2], WINDOW_END)
-            for a, b in zip(plan, plan[1:]):
-                self.assertTrue(MIN_GAP <= b - a <= MAX_GAP)
+class RunLogTests(unittest.TestCase):
+    def test_runs_logged_today(self):
+        values = [["Run time (IST)"], ["2026-10-11 18:00", "x"], ["2026-10-12 09:40", "x"], ["bad"]]
+        self.assertEqual(len(runs_logged_today(values, date(2026, 10, 12))), 1)
+        self.assertEqual(runs_logged_today(values, date(2026, 10, 13)), [])
 
-    def test_due_slot(self):
-        day = date(2026, 10, 12)
-        plan = daily_plan(day)
-        at = lambda minutes: datetime(2026, 10, 12, minutes // 60, minutes % 60, tzinfo=IST)
-        self.assertIsNone(due_slot(at(plan[0] - 1), []))
-        self.assertEqual(due_slot(at(plan[0] + 5), []), plan[0])
-        self.assertIsNone(due_slot(at(plan[0] + 20), [at(plan[0] + 5)]))
-        self.assertEqual(due_slot(at(plan[1] + 3), [at(plan[0] + 5)]), plan[1])
-        # Missed the first slot entirely: catch up once, then wait 2 hours before the next
-        late = at(plan[1] + 1)
-        self.assertEqual(due_slot(late, []), plan[0])
-        self.assertIsNone(due_slot(late + timedelta(minutes=15), [late]))
+
+class ReviewFixTests(unittest.TestCase):
+    def test_single_words_dont_exclude(self):
+        self.assertTrue(is_event_topic("Excited to share: Founders & Investors Mixer in Bengaluru on 25 Oct"))
+        self.assertTrue(is_event_topic("Demo day: options for founders to meet 20 investors"))
+        self.assertFalse(is_event_topic("Investor meet: Swan Defence shares to watch on NSE"))
+        self.assertFalse(is_event_topic("Let's connect! We're investing in fintech founders"))
+
+    def test_dates(self):
+        self.assertIsNone(find_event_date("Our demo day held on 5 September saw 20 startups", date(2026, 10, 10)))
+        self.assertEqual(find_event_date("Investor meet on 10 Jan in Pune", date(2026, 12, 20)), date(2027, 1, 10))
+        self.assertIsNone(find_event_date("Indian founders, pitch to us by 30 October", date(2026, 10, 12)))
+        self.assertEqual(find_event_date("Hosted by Accel on 5 Nov in Bengaluru", date(2026, 10, 12)), date(2026, 11, 5))
+
+    def test_india_and_city(self):
+        self.assertFalse(is_india_event("Indian founders in the Bay Area: mixer in San Francisco on Nov 5"))
+        self.assertTrue(is_india_event("Investor meet in Pune with investors from Dubai"))
+        self.assertFalse(india_signal("We tie up with founders in Singapore"))
+        text = "We invest at pre-seed. Founders in Bengaluru, DM us. Investor meet in Mumbai on 20 Nov."
+        self.assertEqual(find_city_near(text, event_index(text)), "Mumbai")
+
+    def test_links(self):
+        self.assertEqual(link_key("https://www.luma.com/abc/?utm_source=x"), link_key("lu.ma/abc"))
+        self.assertEqual(link_key("https://www.eventbrite.co.in/e/x-123"), "eventbrite.com/e/x-123")
+        self.assertNotEqual(link_key("https://forms.office.com/Pages/ResponsePage.aspx?id=AAA", True),
+                            link_key("https://forms.office.com/Pages/ResponsePage.aspx?id=BBB", True))
+        self.assertFalse(is_event_specific_link("https://linktr.ee/org"))
+        self.assertFalse(is_event_specific_link("https://bit.ly/4aa6nJp"))
+        self.assertFalse(is_event_specific_link("https://www.meetup.com/group-x/"))
+        self.assertTrue(is_event_specific_link("https://www.meetup.com/group-x/events/123/"))
+        self.assertEqual(pick_registration_link(["https://bit.ly/abc", "https://linktr.ee/x", "https://lu.ma/evt"]),
+                         "https://lu.ma/evt")
+
+    def test_article_body_skips_site_links(self):
+        page = ('<html><header><a href="https://bit.ly/follow">Follow us</a></header><nav><a href="/x">x</a></nav>'
+                '<article><p>' + "Investor meet in Pune on 5 Nov. " * 10 + '<a href="https://lu.ma/evt">Register</a></p></article>'
+                '<footer><a href="https://linktr.ee/site">links</a></footer></html>')
+        body = _article_body(page)
+        self.assertIn("lu.ma/evt", body)
+        self.assertNotIn("bit.ly/follow", body)
+        self.assertNotIn("linktr.ee/site", body)
 
 
 class MergeTests(unittest.TestCase):
@@ -108,6 +134,24 @@ class MergeTests(unittest.TestCase):
         self.assertEqual(len(row), len(EVENTS_HEADER))
         # Different date -> a new event
         self.assertEqual(index.merge(self.event(date="2026-11-25", reg_link="", link="https://x.y/z"), "t4")[0], "new")
+
+    def test_organiser_pages_and_dates(self):
+        index = EventIndex([])
+        index.merge(self.event(reg_link="https://linktr.ee/org", link="https://li/1"), "t1")
+        # Same linktr.ee, different event -> its own row
+        self.assertEqual(index.merge(self.event(name="Pitch Night", date="2026-11-02", reg_link="https://linktr.ee/org",
+                                                link="https://x/9"), "t2")[0], "new")
+        # Same Luma event under luma.com, same date -> merged; same link with another date -> new row
+        index.merge(self.event(name="Demo Day", date="2026-12-01", reg_link="https://lu.ma/demo", link="https://lu.ma/demo"), "t3")
+        self.assertEqual(index.merge(self.event(name="zzz", date="2026-12-01", reg_link="https://luma.com/demo/",
+                                                link="https://x/10"), "t4")[0], "updated")
+        self.assertEqual(index.merge(self.event(name="Demo Day 2", date="2027-03-01", reg_link="https://lu.ma/demo",
+                                                link="https://x/11"), "t5")[0], "new")
+
+    def test_extra_links_kept(self):
+        index = EventIndex([])
+        index.merge(self.event(link="https://inc42.com/a", extra_links=["https://news.google.com/rss/articles/X"]), "t1")
+        self.assertIn("https://news.google.com/rss/articles/X", index.rows[0][LINKS].split("\n"))
 
 
 if __name__ == "__main__":

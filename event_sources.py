@@ -8,6 +8,7 @@ Event sites read here (reachable from GitHub's servers): Luma, Meetup, AllEvents
 Konfhub, Commudle, Headstart. Eventbrite, District, 10times, TiE and Townscript
 block GitHub's servers, so the Chrome extension visits those instead.
 """
+import html
 import json
 import re
 import time
@@ -18,8 +19,8 @@ from urllib.parse import quote, quote_plus, urljoin, urlparse
 
 import feedparser
 
-from event_rules import (find_city, find_event_date, find_organizer, india_signal, is_event_topic,
-                         pick_registration_link)
+from event_rules import (event_index, find_city, find_city_near, find_event_date, find_organizer, india_signal,
+                         is_event_topic, is_india_event, pick_registration_link)
 from fetch_vc_news import SOURCES, clean_text, fetch_rss, fetch_wordpress, get
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -57,22 +58,27 @@ def _ist_today():
     return datetime.now(IST).date()
 
 
-def _candidate(name, start, text, source, link, reg_link="", city="", organizer="", author="", today=None):
-    """Build a candidate, or None when it isn't an upcoming Indian investment event."""
+def _candidate(name, start, text, source, link, reg_link=None, city="", organizer="", author="", today=None,
+               extra_links=()):
+    """Build a candidate, or None when it isn't an upcoming Indian investment event.
+
+    city comes from the event site's own data when it has one; otherwise it is the Indian
+    city mentioned nearest to the event phrase. reg_link=None means the event page itself
+    (event sites); news passes the link found in the article, or "".
+    """
     today = today or _ist_today()
     if not name or not start or start < today:
         return None
-    if not is_event_topic(f"{name} {text}"):
+    full = f"{name} {text}"
+    if not is_event_topic(full):
         return None
-    city = city or find_city(f"{name} {text}")
-    if city == "Online" and not india_signal(f"{name} {text}"):
-        return None
-    if not city and not india_signal(f"{name} {text}"):
+    city = city or find_city_near(full, event_index(full))
+    if city in ("", "Online") and not is_india_event(full):
         return None
     return {
         "name": clean_text(name)[:250], "date": start.isoformat(), "city": city,
-        "organizer": organizer or find_organizer(text), "reg_link": reg_link or link,
-        "source": source, "link": link, "author": author,
+        "organizer": organizer or find_organizer(text), "reg_link": link if reg_link is None else reg_link,
+        "source": source, "link": link, "author": author, "extra_links": [l for l in extra_links if l and l != link],
     }
 
 
@@ -318,16 +324,47 @@ def resolve_google_news(session, link):
     return None
 
 
+_SHORT_LINK = re.compile(r"^https?://(lnkd\.in|t\.co|bit\.ly|tinyurl\.com|rb\.gy|buff\.ly|ow\.ly|shorturl\.at|cutt\.ly|is\.gd)/", re.I)
+_RESOLVED = {}
+
+
+def resolve_short_link(session, url):
+    """bit.ly / lnkd.in / t.co -> where it leads (the link itself if that fails)."""
+    if not _SHORT_LINK.match(url):
+        return url
+    if url not in _RESOLVED:
+        try:
+            resp = session.get(url, timeout=10, allow_redirects=True, stream=True)
+            resp.close()
+            _RESOLVED[url] = resp.url if not _SHORT_LINK.match(resp.url) else url
+        except Exception:
+            _RESOLVED[url] = url
+    return _RESOLVED[url]
+
+
+def _article_body(page):
+    """The article itself (<article> or the main content block), else the whole page without
+    navigation: site-wide links ("Follow us on Google News") must not become registration links."""
+    page = re.sub(r"(?is)<(script|style|nav|header|footer|aside|form)[^>]*>.*?</\1>", " ", page)
+    for pattern in (r"(?is)<article[^>]*>(.*?)</article>",
+                    r'(?is)<div[^>]+class="[^"]*(?:entry-content|article-body|story-content|post-content|articleBody|single-post-content)[^"]*"[^>]*>(.*)'):
+        match = re.search(pattern, page)
+        if match and len(clean_text(match.group(1))) > 200:
+            return match.group(1)
+    return page
+
+
 def fetch_article(session, url):
-    """(text, links) from an article page: description + opening paragraphs, and body links."""
+    """(text, links) from an article page: description + paragraphs, and links in the article body."""
     resp = get(session, url)
     if resp is None or resp.status_code != 200:
         return "", []
     page = resp.text
-    body = re.sub(r"(?is)<(script|style|nav|header|footer)[^>]*>.*?</\1>", " ", page)
+    body = _article_body(page)
     parts = re.findall(r'<meta[^>]+(?:property="og:description"|name="description")[^>]+content="([^"]*)"', page)
     parts += [p for p in re.findall(r"(?is)<p[^>]*>(.*?)</p>", body) if len(clean_text(p)) > 40][:25]
-    links = [urljoin(url, href) for href in re.findall(r'<a[^>]+href="([^"#]+)"', body)]
+    links = [urljoin(url, html.unescape(href)) for href in re.findall(r'<a[^>]+href="([^"#]+)"', body)]
+    links = [resolve_short_link(session, link) for link in links[:40] if link.startswith("http")]
     return " ".join(clean_text(p) for p in parts)[:8000], links
 
 
@@ -345,9 +382,10 @@ def _news_candidate(session, title, summary, link, publisher, published, today):
     if not ((city and city != "Online") or india_signal(title)):
         return None
     start = find_event_date(full, published, today=today)
-    candidate = _candidate(title, start, full, f"News - {publisher}", url,
-                           reg_link=pick_registration_link(links), today=today)
-    return candidate
+    # The Google News link is kept next to the publisher's, so the funding-news job
+    # (which only sees Google News links) can tell the article is already in Events
+    return _candidate(title, start, full, f"News - {publisher}", url,
+                      reg_link=pick_registration_link(links), today=today, extra_links=[link])
 
 
 def fetch_google_news_events(session, today):

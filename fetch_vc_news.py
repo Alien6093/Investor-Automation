@@ -91,7 +91,8 @@ STRONG_KEYWORDS = re.compile(
     r'venture capital|venture capitalist|vc firm|vc fund|venture fund|corporate vc|corporate venture|cvc|'
     r'flipkart ventures|angel investors?|angel network|angel round|family office|limited partners?|'
     r'first close|final close|launches fund|new fund|maiden fund|fund size|accelerator|incubator|'
-    r'cohort|demo day|startup program|startup programme|y combinator|techstars|lead investor)\b',
+    r'cohort|demo day|startup program|startup programme|y combinator|techstars|lead investor|fund of funds|'
+    r'startup scheme|seed fund scheme)\b',
     re.IGNORECASE
 )
 
@@ -107,7 +108,19 @@ EXCLUDE_KEYWORDS = re.compile(
 )
 
 
+# Government news counts only when it is about startups / funding schemes; government tax,
+# price and stake headlines ("Govt raises windfall tax") would otherwise pass as funding news
+GOVT_KEYWORDS = re.compile(r'\b(govt|government|centre|ministry)\b', re.IGNORECASE)
+STARTUP_CONTEXT = re.compile(
+    r'\b(start-?ups?|founders?|fund of funds|scheme|grants?|incubat\w*|accelerat\w*|dpiit|startup india|'
+    r'seed fund|venture|innovation)\b',
+    re.IGNORECASE
+)
+
+
 def is_relevant(text):
+    if GOVT_KEYWORDS.search(text) and not STARTUP_CONTEXT.search(text):
+        return False
     if STRONG_KEYWORDS.search(text):
         return True
     return bool(WEAK_KEYWORDS.search(text)) and not EXCLUDE_KEYWORDS.search(text)

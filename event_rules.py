@@ -9,6 +9,7 @@ LinkedIn / X / Reddit posts:
 """
 import re
 from datetime import date, timedelta
+from urllib.parse import parse_qsl, urlsplit
 
 # ---------------------------------------------------------------- topic
 
@@ -23,29 +24,35 @@ _DIRECT = re.compile(
     r"founders?[\s-]+(?:and|&|x|meet)[\s-]+investors?|investors?[\s-]+(?:and|&|x)[\s-]+founders?)\b",
     re.I,
 )
+# Money words and event nouns only count together. Generic words such as "connect",
+# "meet", "session" alone or "pitch" / "capital" are left out: they appear in ordinary text.
 _MONEY = re.compile(
     r"\b(invest(?:or|ors|ment|ments|ing)?|angels?|vcs?|venture capital(?:ists?)?|funding|fundrais(?:e|ing)|"
-    r"pitch(?:es|ing)?|pre-seed|seed fund|accelerators?|incubators?|grants?|capital)\b",
+    r"pre-seed|seed fund|accelerators?|incubators?|grants?)\b",
     re.I,
 )
 _EVENT_NOUN = re.compile(
-    r"\b(meet|meetup|meet-up|summit|conclave|conference|event|mixer|networking|session|webinar|workshop|masterclass|"
-    r"expo|fest|festival|bootcamp|boot camp|roadshow|road show|connect|forum|huddle|roundtable|round table|"
+    r"\b(meetup|meet-up|summit|conclave|conference|event|mixer|networking|webinar|workshop|masterclass|"
+    r"expo|fest|festival|bootcamp|boot camp|roadshow|road show|forum|huddle|roundtable|round table|"
     r"symposium|showcase|convention|breakfast|brunch|open house|info session|cohort day)\b",
     re.I,
 )
 _STARTUP = re.compile(r"\b(start-?ups?|founders?|entrepreneurs?)\b", re.I)
 _STARTUP_EVENT = re.compile(
-    r"\b(networking|mixer|meetup|meet-up|summit|conclave|expo|showcase|pitch|bootcamp|roadshow|fest|connect|"
+    r"\b(networking|mixer|meetup|meet-up|summit|conclave|expo|showcase|bootcamp|roadshow|fest|"
     r"office hours|open house)\b",
     re.I,
 )
-# Listed-company / stock-market / jobs noise ("institutional investor meet", "job fair")
+# Stock-market, jobs and property events. Phrases, not single words: "share", "options",
+# "listed" or "hiring" alone appear in normal startup text ("Excited to share ...").
 _EXCLUDE = re.compile(
-    r"\b(shares?|stocks?|nse|bse|sensex|nifty|ipo|listed|earnings|quarterly results|q[1-4] (?:results|fy)|"
-    r"analysts?|institutional investors?|concall|conference call|dividend|mutual funds?|sip|trading|traders?|"
-    r"forex|crypto(?:currency)?|bitcoin|job fair|hiring|recruitment|placement drive|walk-?in|real estate|"
-    r"property|wedding|retail investors?|wealth|personal finance|financial freedom|options|futures)\b",
+    r"\b(share price|shares? of|stock (?:market|price|split)s?|stocks? to (?:buy|watch)|nse|bse|sensex|nifty|"
+    r"ipo (?:subscription|allotment|gmp|listing|price band|opens|closes)|listing gains|earnings call|"
+    r"quarterly results|q[1-4] (?:results|fy\d*)|analysts? meet|institutional investors?|investors? call|concall|"
+    r"conference call|dividends?|mutual funds?|sip returns|intraday|trading (?:session|tips|strategy|course)|forex|"
+    r"crypto(?:currency)?|bitcoin|job fair|hiring drive|walk-?in interviews?|placement drive|recruitment drive|"
+    r"real estate|property expo|wedding|retail investors?|wealth management|personal finance|financial freedom|"
+    r"options trading|futures (?:and|&) options|f&o)\b",
     re.I,
 )
 
@@ -125,7 +132,16 @@ _CITY_RE = [(name, re.compile(r"\b(?:" + "|".join(re.escape(s) for s in spelling
             for name, spellings in CITIES.items()]
 _INDIA = re.compile(
     r"(\b(?:india|indian|indians|bharat|inr|lakhs?|crores?|startup india|dpiit|meity|nasscom|t-hub|ksum|"
-    r"kerala startup mission|startuptn|iit|iim|iisc|tie [a-z]+)\b|₹|\brs\.?\s?\d)",
+    r"kerala startup mission|startuptn|iit|iim|iisc)\b|₹|\brs\.?\s?\d)",
+    re.I,
+)
+_TIE = re.compile(r"\bTiE\b")  # the TiE network; case-sensitive so "tie up" doesn't count
+# Places abroad: an event there isn't an India event even when "Indian founders" are mentioned
+_FOREIGN = re.compile(
+    r"\b(san francisco|bay area|silicon valley|new york|nyc|london|dubai|abu dhabi|uae|singapore|berlin|paris|"
+    r"toronto|vancouver|sydney|melbourne|riyadh|saudi|doha|qatar|boston|seattle|austin|los angeles|tokyo|"
+    r"hong kong|jakarta|kuala lumpur|bangkok|nairobi|lagos|tel aviv|amsterdam|stockholm|zurich|munich|"
+    r"kathmandu|dhaka|colombo|karachi|lahore)\b",
     re.I,
 )
 _ONLINE = re.compile(r"\b(online|virtual(?:ly)?|webinar|zoom|google meet|livestream|live stream|ms teams)\b", re.I)
@@ -143,8 +159,42 @@ def find_city(text):
     return "Online" if _ONLINE.search(text or "") else ""
 
 
+def event_index(text):
+    """Index of the first event phrase in the text (to find the event's city), else -1."""
+    for pattern in (_DIRECT, _EVENT_NOUN, _STARTUP_EVENT):
+        match = pattern.search(text or "")
+        if match:
+            return match.start()
+    return -1
+
+
+def find_city_near(text, index=-1):
+    """The Indian city mentioned closest to `index` (the event phrase); first city when index < 0."""
+    if index < 0:
+        return find_city(text)
+    best = None
+    for name, pattern in _CITY_RE:
+        for match in pattern.finditer(text or ""):
+            distance = abs(match.start() - index)
+            if best is None or distance < best[0]:
+                best = (distance, name)
+    if best:
+        return best[1]
+    return "Online" if _ONLINE.search(text or "") else ""
+
+
 def india_signal(text):
-    return bool(_INDIA.search(text or "")) or any(p.search(text or "") for _, p in _CITY_RE)
+    return bool(_INDIA.search(text or "") or _TIE.search(text or "")) or any(p.search(text or "") for _, p in _CITY_RE)
+
+
+def is_india_event(text, india_known=False):
+    """An event in India: an Indian city is named, or India is mentioned and no place abroad is."""
+    city = find_city(text)
+    if city and city != "Online":
+        return True
+    if _FOREIGN.search(text or ""):
+        return False
+    return india_known or india_signal(text)
 
 
 # ---------------------------------------------------------------- dates
@@ -165,7 +215,12 @@ _DATE_PATTERNS = [
     ("num", re.compile(r"\b(\d{1,2})[/.](\d{1,2})[/.](\d{4}|\d{2})\b")),
 ]
 # A date right after these words is a deadline, not the event day
-_DEADLINE = re.compile(r"(deadline|apply by|applications? close|last date|register by|registrations? close|before|closes|till|until|due)\W*(?:\w+\W+){0,2}$", re.I)
+_DEADLINE = re.compile(
+    r"(deadline|apply by|applications? (?:close|closes|closing|due)|last (?:date|day)|register by|registrations? close|"
+    r"submit by|pitch by|closes|closing|till|until|due)\W*(?:\w+\W+){0,3}$",
+    re.I,
+)
+_DEADLINE_RIGHT_BEFORE = re.compile(r"\b(?:by|before)\s+(?:the\s+)?$", re.I)
 
 
 def _make_date(year, month, day):
@@ -181,7 +236,7 @@ def find_dates(text, ref):
     for kind, pattern in _DATE_PATTERNS:
         for match in pattern.finditer(text or ""):
             before = (text or "")[max(0, match.start() - 30):match.start()]
-            if _DEADLINE.search(before):
+            if _DEADLINE.search(before) or _DEADLINE_RIGHT_BEFORE.search(before):
                 continue
             year = None
             if kind == "dmy":
@@ -198,8 +253,9 @@ def find_dates(text, ref):
                 found_date = _make_date(int(year), month, day)
             else:
                 found_date = _make_date(ref.year, month, day)
-                # "5 Jan" written in December means next January
-                if found_date and found_date < ref - timedelta(days=30):
+                # "5 Jan" written in December means next January. A date only weeks back
+                # ("held on 5 September", written in October) stays in the past.
+                if found_date and found_date < ref - timedelta(days=180):
                     found_date = _make_date(ref.year + 1, month, day)
             if found_date:
                 found.append((match.start(), found_date))
@@ -220,8 +276,7 @@ _ORGANIZER = re.compile(r"\b(?:organi[sz]ed|hosted|presented|powered|curated)\s+
 REGISTRATION_DOMAINS = re.compile(
     r"(lu\.ma|luma\.com|eventbrite\.|konfhub\.com|townscript\.com|meetup\.com|allevents\.in|district\.in|insider\.in|"
     r"commudle\.com|hasgeek\.com|unstop\.com|devfolio\.co|10times\.com|docs\.google\.com/forms|forms\.gle|"
-    r"typeform\.com|tally\.so|airtable\.com|jotform\.com|zoom\.us/(?:webinar|meeting)|headstart\.in/events|"
-    r"bit\.ly|linktr\.ee)",
+    r"typeform\.com|tally\.so|airtable\.com|jotform\.com|zoom\.us/(?:webinar|meeting)|headstart\.in/events)",
     re.I,
 )
 
@@ -231,9 +286,27 @@ def find_organizer(text):
     return match.group(1).strip(" .,'’") if match else ""
 
 
+def is_event_specific_link(link):
+    """A link that identifies one event (usable as a merge key). Profile / organiser pages
+    (linktr.ee, a Meetup group, an Eventbrite organiser, a Luma calendar) and unresolved
+    short links can stand for many events. Mirrors isEventSpecificLink in the extension."""
+    key = link_key(link)
+    if not key:
+        return False
+    if re.match(r"(linktr\.ee|bit\.ly|lnkd\.in|t\.co|tinyurl\.com|rb\.gy|shorturl\.at)/", key):
+        return False
+    if key.startswith("meetup.com/") and not re.search(r"/events/\d+", key):
+        return False
+    if key.startswith("eventbrite.com/o/"):
+        return False
+    if re.match(r"lu\.ma/(calendar|user|u)/", key):
+        return False
+    return True
+
+
 def pick_registration_link(links):
     for link in links:
-        if REGISTRATION_DOMAINS.search(link):
+        if REGISTRATION_DOMAINS.search(link) and is_event_specific_link(link):
             return link
     return ""
 
@@ -242,8 +315,31 @@ def name_key(name):
     return re.sub(r"[^a-z0-9]", "", (name or "").lower())[:120]
 
 
-def link_key(link):
-    link = (link or "").strip().lower()
-    link = re.sub(r"^https?://(www\.)?", "", link)
-    link = re.sub(r"[?#].*$", "", link)
-    return link.rstrip("/")
+# Different hosts for the same pages
+_HOST_ALIASES = [
+    (re.compile(r"^luma\.com$"), "lu.ma"),
+    (re.compile(r"^eventbrite\.(?:co\.in|co\.uk|com\.au|ca|ie|de|fr|es|nl|sg)$"), "eventbrite.com"),
+    (re.compile(r"^twitter\.com$"), "x.com"),
+]
+# Tracking parameters that don't change which page a link opens
+_TRACKING_PARAM = re.compile(r"^(utm_.*|fbclid|gclid|trk|trackingid|ref|refid|si|s|usp|aff|_ga)$", re.I)
+
+
+def link_key(link, keep_query=False):
+    """Normalised link used to match rows: no scheme, www./m., tracking or trailing slash.
+    keep_query keeps the remaining query. Mirrors linkKey in the extension's lib/rules.js."""
+    raw = (link or "").strip()
+    if not raw:
+        return ""
+    parsed = urlsplit(raw if re.match(r"^[a-z][a-z0-9+.-]*://", raw, re.I) else f"https://{raw}")
+    host = (parsed.hostname or "").lower()
+    host = re.sub(r"^(?:www|m|mobile)\.", "", host)
+    for pattern, alias in _HOST_ALIASES:
+        if pattern.match(host):
+            host = alias
+    query = ""
+    if keep_query:
+        params = sorted((k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True) if not _TRACKING_PARAM.match(k))
+        if params:
+            query = "?" + "&".join(f"{k}={v}" for k, v in params)
+    return f"{host}{parsed.path.rstrip('/')}{query}".lower()

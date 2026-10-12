@@ -1,23 +1,30 @@
-name: Events Fetcher (3x daily, random times)
+name: Events Fetcher
 
 on:
-  schedule:
-    # Wakes every 15 min from 08:30 to 19:15 IST (03:00-13:45 UTC). fetch_events.py only
-    # collects at today's 3 random times (9 AM-7 PM IST, 2-3 hours apart).
-    - cron: '*/15 3-13 * * *'
+  # Started by the Chrome extension (master-extension) at each of its 3 daily random run times.
+  # "Run workflow" here starts one by hand.
   workflow_dispatch:
     inputs:
+      reason:
+        description: 'Who started this run (filled in by the extension)'
+        required: false
+        default: 'manual run'
       dry_run:
         description: 'Only print what would be added, do not write to the sheet'
         type: boolean
         default: false
+  # Fallback when the extension started no run today (laptop off). GitHub starts this
+  # repo's scheduled jobs hours late, so this may run in the evening or at night.
+  schedule:
+    - cron: '30 13 * * *'
 
 permissions:
   contents: read
   actions: write  # keep-alive below
 
+# Runs started by the extension queue behind each other; the fallback has its own group
 concurrency:
-  group: events-fetch
+  group: events-fetch-${{ github.event_name }}
   cancel-in-progress: false
 
 jobs:
@@ -43,8 +50,7 @@ jobs:
           PYTHONUNBUFFERED: '1'
           GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
           SHEET_ID: ${{ secrets.SHEET_ID }}
-          # A manual run collects right away
-          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' }}
+          RUN_REASON: ${{ github.event.inputs.reason }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
         run: python fetch_events.py
 
