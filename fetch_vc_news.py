@@ -15,6 +15,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 from event_rules import is_event_topic, link_key, name_key
+from lark_notify import SHOWN, link, md, notify, plural, short
 from events_sheet import EVENTS_HEADER, EVENTS_TAB
 from investor_extractor import build_investor_table, extract_investors, INVESTOR_HEADER
 from deal_extractor import extract_deal, is_single_deal
@@ -569,12 +570,14 @@ def run():
     # Event articles already in the Events tab (fetch_events.py) stay out of Sheet1
     event_links, event_names = event_tab_keys(sheet.spreadsheet)
     new_rows = []
+    problems = []
 
     for source in SOURCES:
         try:
             articles = FETCHERS[source["type"]](session, source, start)
         except Exception as e:
             print(f"[{source['name']}] ERROR ({source['type']}): {e}")
+            problems.append(f"{source['name']}: {e.__class__.__name__}")
             continue
 
         added = 0
@@ -639,7 +642,41 @@ def run():
                 print("   ", " | ".join(str(v)[:60] for v in row[:6]))
         else:
             write_tab(sheet.spreadsheet, name, header, table)
+    if not dry_run:
+        notify_lark(sheet.spreadsheet.url, new_rows, problems)
+
+
+def notify_lark(sheet_url, new_rows, problems):
+    """Daily summary to the Lark group: new articles, the deals among them, problems."""
+    deals = [row for row in new_rows if len(row) > 8 and row[5] and (row[6] or row[8] not in ("", NOT_FOUND))]
+    by_category = Counter(row[3] for row in new_rows)
+    blocks = [
+        f"**{plural(len(new_rows), 'new article')}** added to Sheet1 · {plural(len(deals), 'deal')}"
+        + (f"\n{', '.join(f'{c}: {n}' for c, n in by_category.most_common())}" if by_category else ""),
+    ]
+    if deals:
+        lines = []
+        for row in deals[:SHOWN]:
+            detail = " ".join(part for part in (row[6], row[7]) if part)
+            investors = "" if row[8] in ("", NOT_FOUND) else f" — {short(row[8], 70)}"
+            lines.append(f"• {link(short(row[5], 50), row[4])}{' · ' + md(detail) if detail else ''}{investors} ({md(row[1])})")
+        more = f"\n…and {len(deals) - SHOWN} more in the sheet" if len(deals) > SHOWN else ""
+        blocks += ["---", "**New deals**\n" + "\n".join(lines) + more]
+    other = [row for row in new_rows if row not in deals]
+    if other:
+        lines = [f"• {link(short(row[2], 100), row[4])} ({md(row[1])})" for row in other[:5]]
+        more = f"\n…and {len(other) - 5} more in the sheet" if len(other) > 5 else ""
+        blocks += ["---", "**Other new articles**\n" + "\n".join(lines) + more]
+    if problems:
+        blocks += ["---", "**⚠ Problems**\n" + "\n".join(f"• {md(p)}" for p in problems[:8])]
+    blocks += ["---", link("Open the sheet", sheet_url)]
+    notify("Funding news · daily run", blocks, warning=bool(problems))
 
 
 if __name__ == "__main__":
-    run()
+    try:
+        run()
+    except Exception as e:
+        if os.environ.get("DRY_RUN", "").lower() != "true":
+            notify("Funding news · run failed", [f"**The daily funding-news job stopped with an error:**\n{md(str(e))[:500]}"], warning=True)
+        raise

@@ -12,6 +12,7 @@ RUN_REASON (who started it), DRY_RUN=true (print instead of writing).
 import os
 import re
 import time
+from collections import Counter
 import traceback
 from datetime import datetime
 
@@ -20,6 +21,7 @@ import requests
 from event_sources import FETCHERS, IST, set_deadline
 from events_sheet import get_tab, merge_events
 from fetch_vc_news import HEADERS, setup_google_sheet
+from lark_notify import SHOWN, link, md, notify, plural, short
 
 RUN_LOG_TAB = "Events Run Log"
 RUN_LOG_HEADER = ["Run time (IST)", "Started by", "Candidates", "New events", "Updated events", "Notes"]
@@ -91,7 +93,7 @@ def run():
         match = re.search(r"![A-Z]+(\d+)", (response or {}).get("updates", {}).get("updatedRange", ""))
         log_row = int(match.group(1)) if match else None
 
-    events, notes, counts = [], [], None
+    events, notes, counts, new_rows = [], [], None, []
     try:
         events, notes = collect(now.date())
         stamp = datetime.now(IST).strftime("%Y-%m-%d %H:%M")
@@ -107,12 +109,35 @@ def run():
         raise
     finally:
         if not dry_run:
+            notify_lark(spreadsheet.url, label, events, counts, new_rows, notes)
             row = [now.strftime("%Y-%m-%d %H:%M"), label[:100], len(events), counts["new"] if counts else "",
                    counts["updated"] if counts else "", "; ".join(notes)[:500] or "done"]
             if log_row:
                 log_tab.update([row], f"A{log_row}:F{log_row}", value_input_option="RAW")
             else:
                 log_tab.append_row(row, value_input_option="RAW", insert_data_option="INSERT_ROWS", table_range="A1")
+
+
+def notify_lark(sheet_url, label, events, counts, new_rows, notes):
+    """Summary to the Lark group once the Events tab is updated (or the run failed)."""
+    by_source = Counter(event["source"].split(" - ")[0] for event in events)
+    blocks = [
+        (f"**{plural(counts['new'], 'new event')}** added to the Events tab"
+         f" ({plural(counts['updated'], 'event')} seen again)" if counts else "**Nothing was saved** (see problems)")
+        + f"\nStarted by: {md(label)}",
+    ]
+    if by_source:
+        blocks.append("**By source**\n" + "\n".join(f"{md(source)}: {n} upcoming India events" for source, n in by_source.most_common()))
+    if new_rows:
+        lines = [f"• {link(short(row[0], 80), row[4] or row[6].split(chr(10))[0])} — {md(row[1])}"
+                 f"{' · ' + md(row[2]) if row[2] else ''} ({md(row[5])})" for row in new_rows[:SHOWN]]
+        more = f"\n…and {len(new_rows) - SHOWN} more in the sheet" if len(new_rows) > SHOWN else ""
+        blocks += ["---", "**New events**\n" + "\n".join(lines) + more]
+    if notes:
+        blocks += ["---", "**⚠ Problems**\n" + "\n".join(f"• {short(note, 160)}" for note in notes[:8])]
+    blocks += ["---", link("Open the sheet", sheet_url)]
+    notify("Events (GitHub) · run finished" if counts else "Events (GitHub) · run failed", blocks,
+           warning=bool(notes) or not counts)
 
 
 if __name__ == "__main__":

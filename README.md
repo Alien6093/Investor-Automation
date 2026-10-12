@@ -67,5 +67,9 @@ Repository secrets (Settings → Secrets and variables → Actions):
   with the service account's email as Editor.
 - `SHEET_ID` (optional): the ID from the sheet URL. Without it the sheet is
   found by its name.
+- `LARK_WEBHOOK_URL` and `LARK_WEBHOOK_SECRET` (optional): the Lark group's Custom Bot
+  webhook link and signature secret. Both jobs then post a summary card after every run:
+  new articles and deals (funding news), new events by source (events job), problems,
+  and a link to the sheet. A failed message never fails the job.
 
 Tests: `python -m unittest discover -s tests -t .`
