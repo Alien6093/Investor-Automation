@@ -1,0 +1,64 @@
+name: Events Fetcher
+
+on:
+  # Started by the Chrome extension (master-extension) at each of its 3 daily random run times.
+  # "Run workflow" here starts one by hand.
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Who started this run (filled in by the extension)'
+        required: false
+        default: 'manual run'
+      dry_run:
+        description: 'Only print what would be added, do not write to the sheet'
+        type: boolean
+        default: false
+  # Fallback when the extension started no run today (laptop off). GitHub starts this
+  # repo's scheduled jobs hours late, so this may run in the evening or at night.
+  schedule:
+    - cron: '30 13 * * *'
+
+permissions:
+  contents: read
+  actions: write  # keep-alive below
+
+# One run at a time: the fallback waits for a run the extension started, then sees it in the log
+concurrency:
+  group: events-fetch
+  cancel-in-progress: false
+
+jobs:
+  events:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install Dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Events Fetcher
+        env:
+          PYTHONUNBUFFERED: '1'
+          GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          RUN_REASON: ${{ github.event.inputs.reason }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: python fetch_events.py
+
+      # GitHub pauses scheduled workflows after 60 days without repository activity
+      - name: Keep schedules enabled
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow enable events_fetch.yml --repo "$GITHUB_REPOSITORY" || true
+          gh workflow enable daily_vc_fetch.yml --repo "$GITHUB_REPOSITORY" || true

@@ -22,13 +22,32 @@ into the **VC & Funding Tracker** Google Sheet.
 
 All tabs except Sheet1 are rebuilt on every run, so edit Sheet1, not them.
 
-Sources: Entrackr, Inc42, YourStory, BW Businessworld, VCCircle, ET Tech,
-TechCrunch Venture, Crunchbase News, e27, Y Combinator blog, Indian Startup
-News, Startup Story Media, Livemint, Moneycontrol, Business Standard,
-DealStreetAsia, LinkedIn posts, plus Google News searches (any publisher) for
-accelerator cohorts, VC fund launches / closes and "led by" funding news.
-Sites that block automated requests or have no archive feed are read through
-Google News, so those rows link via `news.google.com`.
+## Events tab (fetch_events.py)
+
+Upcoming India-only funding events, investor meets, demo days, pitch events and
+startup-investor networking, one row per event:
+`Event name | Event date | City / Online | Organizer | Registration link | Sources | Links | Author profile URLs | First added | Last seen`.
+
+- Sources: Luma, Meetup, AllEvents, Konfhub, Commudle, Headstart, event coverage
+  in Google News (India edition) and the India news sites above. The Chrome
+  extension (master-extension repo) adds events from LinkedIn, X, Reddit and the
+  event sites that block GitHub's servers (Eventbrite, District, 10times, TiE, Townscript).
+- The same event seen in several places is one row: rows are matched by an
+  event-specific link (registration / event page; not an organiser page, linktr.ee
+  or short link) with the same date, or by event name + date. luma.com / lu.ma and
+  eventbrite.co.in / .com count as the same site.
+- Only events dated today or later, held in India (an event abroad is skipped even
+  when Indian founders are mentioned).
+- Event news goes to the Events tab only: the funding-news run skips articles that
+  are already in Events (the Google News link is stored next to the publisher's).
+- **When it runs:** the Chrome extension starts this workflow at each of its 3 daily
+  runs (random times between 9 AM and 7 PM IST), so both collect at the same times.
+  GitHub's own schedule starts this repo's jobs hours late, so it is only a fallback:
+  once a day it collects if the extension started no run that day. Every run is logged
+  in the **Events Run Log** tab. **Actions → Events Fetcher → Run workflow** collects
+  right away.
+- Row 1 of the Events tab must stay the header: rows are written by position, so the
+  job stops instead of writing when the header was moved.
 
 ## Running it
 
@@ -48,3 +67,5 @@ Repository secrets (Settings → Secrets and variables → Actions):
   with the service account's email as Editor.
 - `SHEET_ID` (optional): the ID from the sheet URL. Without it the sheet is
   found by its name.
+
+Tests: `python -m unittest discover -s tests -t .`

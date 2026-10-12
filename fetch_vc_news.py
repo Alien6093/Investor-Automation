@@ -14,6 +14,8 @@ import feedparser
 import gspread
 from google.oauth2.service_account import Credentials
 
+from event_rules import is_event_topic, link_key, name_key
+from events_sheet import EVENTS_HEADER, EVENTS_TAB
 from investor_extractor import build_investor_table, extract_investors, INVESTOR_HEADER
 from deal_extractor import extract_deal, is_single_deal
 from summary_tabs import (build_deals_table, build_accelerator_table, dedupe_deals, DEALS_HEADER,
@@ -89,7 +91,8 @@ STRONG_KEYWORDS = re.compile(
     r'venture capital|venture capitalist|vc firm|vc fund|venture fund|corporate vc|corporate venture|cvc|'
     r'flipkart ventures|angel investors?|angel network|angel round|family office|limited partners?|'
     r'first close|final close|launches fund|new fund|maiden fund|fund size|accelerator|incubator|'
-    r'cohort|demo day|startup program|startup programme|y combinator|techstars|lead investor)\b',
+    r'cohort|demo day|startup program|startup programme|y combinator|techstars|lead investor|fund of funds|'
+    r'startup scheme|seed fund scheme)\b',
     re.IGNORECASE
 )
 
@@ -100,12 +103,29 @@ WEAK_KEYWORDS = re.compile(
 )
 EXCLUDE_KEYWORDS = re.compile(
     r'\b(shares?|stocks?|sensex|nifty|dalal street|etfs?|mutual funds?|disinvestment|ipo|listing|'
-    r'dividend|bonds?|q[1-4] results|quarterly results|govt|government|qip|ncds?|rights issue)\b',
+    r'dividend|bonds?|q[1-4] results|quarterly results|qip|ncds?|rights issue)\b',
+    re.IGNORECASE
+)
+
+
+# Government news counts only when it is about startups / funding schemes; government tax,
+# price and stake headlines ("Govt raises windfall tax") would otherwise pass as funding news
+GOVT_KEYWORDS = re.compile(r"\b(govt|government|the centre|centre's|ministry)\b", re.IGNORECASE)
+STARTUP_CONTEXT = re.compile(
+    r'\b(start-?ups?|founders?|fund of funds|scheme|grants?|incubat\w*|accelerat\w*|dpiit|startup india|'
+    r'seed fund|ventures?|innovation)\b',
     re.IGNORECASE
 )
 
 
 def is_relevant(text):
+    if STRONG_KEYWORDS.search(text):
+        return True
+    # Funding words alone ("raises", "investors") in government news are usually tax / price / stake news
+    if GOVT_KEYWORDS.search(text) and not STARTUP_CONTEXT.search(text):
+        deal = extract_deal(text)
+        if not (deal["amount"] or deal["investors"]):
+            return False
     if STRONG_KEYWORDS.search(text):
         return True
     return bool(WEAK_KEYWORDS.search(text)) and not EXCLUDE_KEYWORDS.search(text)
@@ -462,6 +482,20 @@ def add_deal_columns(session, rows):
     return len(todo)
 
 
+def event_tab_keys(spreadsheet):
+    """Links and names of rows in the Events tab."""
+    try:
+        rows = spreadsheet.worksheet(EVENTS_TAB).get_all_values()[1:]
+    except gspread.exceptions.WorksheetNotFound:
+        return set(), set()
+    links, names = set(), set()
+    for row in rows:
+        row = (row + [""] * len(EVENTS_HEADER))[:len(EVENTS_HEADER)]
+        names.add(name_key(row[0]))
+        links.update(link_key(link) for link in [row[4]] + row[6].split("\n") if link)
+    return links, names
+
+
 def title_key(title):
     return re.sub(r"[^a-z0-9]", "", title.lower())[:90]
 
@@ -532,6 +566,8 @@ def run():
     # can arrive twice (e.g. directly from Entrackr and again through Google News).
     existing_urls = {row[4] for row in existing_rows}
     existing_titles = {title_key(row[2]) for row in existing_rows}
+    # Event articles already in the Events tab (fetch_events.py) stay out of Sheet1
+    event_links, event_names = event_tab_keys(sheet.spreadsheet)
     new_rows = []
 
     for source in SOURCES:
@@ -554,6 +590,8 @@ def run():
                     continue
             link = article["link"]
             if not link or link in existing_urls or title_key(article["title"]) in existing_titles:
+                continue
+            if is_event_topic(text) and (link_key(link) in event_links or name_key(article["title"]) in event_names):
                 continue
             existing_urls.add(link)
             existing_titles.add(title_key(article["title"]))
