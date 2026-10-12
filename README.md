@@ -31,7 +31,7 @@ startup-investor networking, one row per event:
 - Sources: Luma, Meetup, AllEvents, Konfhub, Commudle, Headstart, event coverage
   in Google News (India edition) and the India news sites above. The Chrome
   extension (master-extension repo) adds events from LinkedIn, X, Reddit and the
-  event sites that block GitHub's servers (Eventbrite, District, 10times, TiE, Townscript).
+  event sites that block or sometimes refuse GitHub's servers (Eventbrite, 10times, AllEvents).
 - The same event seen in several places is one row: rows are matched by an
   event-specific link (registration / event page; not an organiser page, linktr.ee
   or short link) with the same date, or by event name + date. luma.com / lu.ma and
