@@ -316,7 +316,7 @@ def is_event_specific_link(link):
     # A site's home page or an event listing stands for many events
     if "/" not in key:
         return False
-    if re.match(r"(eventbrite\.com/d/|headstart\.in/events$|district\.in/events$|allevents\.in/[^/]+/[^/]+$|"
+    if re.match(r"(eventbrite\.com/d/|headstart\.in/events$|district\.in/events$|allevents\.in/[^/]+/(?:startup|startups|business|networking|workshops?|conferences?|seminars?|meetups?)$|"
                 r"10times\.com/[a-z-]+/[a-z-]+$|tie\.org/events$|townscript\.com/in/)", key):
         return False
     return True
