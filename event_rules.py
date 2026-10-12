@@ -45,7 +45,7 @@ _EXCLUDE = re.compile(
     r"\b(shares?|stocks?|nse|bse|sensex|nifty|ipo|listed|earnings|quarterly results|q[1-4] (?:results|fy)|"
     r"analysts?|institutional investors?|concall|conference call|dividend|mutual funds?|sip|trading|traders?|"
     r"forex|crypto(?:currency)?|bitcoin|job fair|hiring|recruitment|placement drive|walk-?in|real estate|"
-    r"property expo|wedding|retail investors?|wealth|personal finance|financial freedom|options|futures)\b",
+    r"property|wedding|retail investors?|wealth|personal finance|financial freedom|options|futures)\b",
     re.I,
 )
 
