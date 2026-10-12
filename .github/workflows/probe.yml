@@ -1,0 +1,10 @@
+name: TEMP probe event sites
+on:
+  push:
+    branches: [claude/probe-event-sites]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: pip install requests && python probe/probe.py
