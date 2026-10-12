@@ -97,6 +97,24 @@ class ReviewFixTests(unittest.TestCase):
         self.assertEqual(pick_registration_link(["https://bit.ly/abc", "https://linktr.ee/x", "https://lu.ma/evt"]),
                          "https://lu.ma/evt")
 
+    def test_second_review_fixes(self):
+        d = date(2026, 10, 12)
+        self.assertEqual(find_event_date("Investor meetup from 10 AM till 1 PM on 25 October, Bengaluru", d), date(2026, 10, 25))
+        self.assertEqual(find_event_date("Register by 25 Oct; summit 2 Nov", d), date(2026, 11, 2))
+        self.assertEqual(find_event_date("Deadline: 30 Oct | Event: 5 Nov, Bengaluru investor meet", d), date(2026, 11, 5))
+        self.assertEqual(find_event_date("Investor meet on 25 Oct 1500 founders", d), date(2026, 10, 25))
+        self.assertFalse(is_india_event("Calling Mumbai startups: pitch to investors at the Founders Summit in Dubai on 5 Nov"))
+        self.assertTrue(is_event_topic("Meet 50+ angel and institutional investors at our Demo Day in Bengaluru on 5 Nov"))
+        self.assertFalse(is_event_specific_link("https://10times.com/india/startup"))
+        self.assertFalse(is_event_specific_link("https://lu.ma/"))
+
+    def test_government_filter(self):
+        from fetch_vc_news import is_relevant
+        self.assertFalse(is_relevant("Govt raises windfall tax on crude oil"))
+        self.assertTrue(is_relevant("Government launches Rs 10,000 crore fund of funds for startups"))
+        self.assertTrue(is_relevant("Data centre startup Nxtra raises $50 Mn led by Blume Ventures"))
+        self.assertTrue(is_relevant("Zepto raises $200 Mn as government eases norms"))
+
     def test_article_body_skips_site_links(self):
         page = ('<html><header><a href="https://bit.ly/follow">Follow us</a></header><nav><a href="/x">x</a></nav>'
                 '<article><p>' + "Investor meet in Pune on 5 Nov. " * 10 + '<a href="https://lu.ma/evt">Register</a></p></article>'

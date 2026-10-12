@@ -289,7 +289,7 @@ def fetch_headstart(session, today):
         candidate = _candidate(
             event.get("title", ""), _local_date(event.get("starts_at")), text, "Headstart",
             f"https://www.headstart.in/events/{event.get('slug', '')}",
-            reg_link=event.get("register_url") or event.get("external_url") or "", city=city,
+            reg_link=event.get("register_url") or event.get("external_url") or None, city=city,
             organizer="Headstart Network", today=today,
         )
         if candidate:

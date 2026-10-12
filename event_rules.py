@@ -48,7 +48,7 @@ _STARTUP_EVENT = re.compile(
 _EXCLUDE = re.compile(
     r"\b(share price|shares? of|stock (?:market|price|split)s?|stocks? to (?:buy|watch)|nse|bse|sensex|nifty|"
     r"ipo (?:subscription|allotment|gmp|listing|price band|opens|closes)|listing gains|earnings call|"
-    r"quarterly results|q[1-4] (?:results|fy\d*)|analysts? meet|institutional investors?|investors? call|concall|"
+    r"quarterly results|q[1-4] (?:results|fy\d*)|analysts? meet|concall|"
     r"conference call|dividends?|mutual funds?|sip returns|intraday|trading (?:session|tips|strategy|course)|forex|"
     r"crypto(?:currency)?|bitcoin|job fair|hiring drive|walk-?in interviews?|placement drive|recruitment drive|"
     r"real estate|property expo|wedding|retail investors?|wealth management|personal finance|financial freedom|"
@@ -188,13 +188,20 @@ def india_signal(text):
 
 
 def is_india_event(text, india_known=False):
-    """An event in India: an Indian city is named, or India is mentioned and no place abroad is."""
+    """An event in India: an Indian city is named, or India is mentioned and no place abroad is.
+    When both an Indian city and a place abroad are named, the one nearest the event phrase
+    decides ("Calling Mumbai startups: summit in Dubai on 5 Nov" is abroad)."""
+    text = text or ""
     city = find_city(text)
-    if city and city != "Online":
-        return True
-    if _FOREIGN.search(text or ""):
+    foreign_at = [m.start() for m in _FOREIGN.finditer(text)]
+    if not foreign_at:
+        return bool(city and city != "Online") or india_known or india_signal(text)
+    if not city or city == "Online":
         return False
-    return india_known or india_signal(text)
+    at = max(0, event_index(text))
+    city_at = [m.start() for _, pattern in _CITY_RE for m in pattern.finditer(text)]
+    nearest = lambda positions: min(abs(i - at) for i in positions)
+    return nearest(city_at) < nearest(foreign_at)
 
 
 # ---------------------------------------------------------------- dates
@@ -215,12 +222,14 @@ _DATE_PATTERNS = [
     ("num", re.compile(r"\b(\d{1,2})[/.](\d{1,2})[/.](\d{4}|\d{2})\b")),
 ]
 # A date right after these words is a deadline, not the event day
+# The words between the deadline phrase and the date may not contain digits or separators,
+# so "Register by 25 Oct; summit 2 Nov" keeps 2 Nov and "10 AM till 1 PM on 25 Oct" keeps 25 Oct.
 _DEADLINE = re.compile(
-    r"(deadline|apply by|applications? (?:close|closes|closing|due)|last (?:date|day)|register by|registrations? close|"
-    r"submit by|pitch by|closes|closing|till|until|due)\W*(?:\w+\W+){0,3}$",
+    r"\b(deadline|apply by|applications? (?:close|closes|closing|due)|last (?:date|day)|register by|registrations? close|"
+    r"submit by|pitch by)[^\w;|.\n]*(?:[^\W\d]+[^\w;|.\n]+){0,3}$",
     re.I,
 )
-_DEADLINE_RIGHT_BEFORE = re.compile(r"\b(?:by|before)\s+(?:the\s+)?$", re.I)
+_DEADLINE_RIGHT_BEFORE = re.compile(r"\b(?:by|before|till|until|due)\s+(?:the\s+)?$", re.I)
 
 
 def _make_date(year, month, day):
@@ -249,6 +258,9 @@ def find_dates(text, ref):
                 day, month, year = int(match.group(1)), int(match.group(2)), match.group(3)
                 if len(year) == 2:
                     year = "20" + year
+            # A 4-digit number after a date is only a year when it is close to the reference year
+            if year and abs(int(year) - ref.year) > 2:
+                year = None
             if year:
                 found_date = _make_date(int(year), month, day)
             else:
@@ -300,6 +312,12 @@ def is_event_specific_link(link):
     if key.startswith("eventbrite.com/o/"):
         return False
     if re.match(r"lu\.ma/(calendar|user|u)/", key):
+        return False
+    # A site's home page or an event listing stands for many events
+    if "/" not in key:
+        return False
+    if re.match(r"(eventbrite\.com/d/|headstart\.in/events$|district\.in/events$|allevents\.in/[^/]+/[^/]+$|"
+                r"10times\.com/[a-z-]+/[a-z-]+$|tie\.org/events$|townscript\.com/in/)", key):
         return False
     return True
 

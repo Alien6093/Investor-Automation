@@ -22,9 +22,9 @@ permissions:
   contents: read
   actions: write  # keep-alive below
 
-# Runs started by the extension queue behind each other; the fallback has its own group
+# One run at a time: the fallback waits for a run the extension started, then sees it in the log
 concurrency:
-  group: events-fetch-${{ github.event_name }}
+  group: events-fetch
   cancel-in-progress: false
 
 jobs:

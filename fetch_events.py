@@ -22,6 +22,7 @@ from fetch_vc_news import HEADERS, setup_google_sheet
 
 RUN_LOG_TAB = "Events Run Log"
 RUN_LOG_HEADER = ["Run time (IST)", "Started by", "Candidates", "New events", "Updated events", "Notes"]
+OLD_RUN_LOG_HEADER = ["Run time (IST)", "Planned slot (IST)", "Candidates", "New events", "Updated events", "Notes"]
 
 # Sources still waiting when a run reaches this many minutes are skipped (and logged), so a
 # slow site can't use up the job's whole time and lose everything found so far
@@ -69,7 +70,7 @@ def run():
     dry_run = os.environ.get("DRY_RUN", "").lower() == "true"
     spreadsheet = setup_google_sheet().spreadsheet
 
-    log_tab, log_values = get_tab(spreadsheet, RUN_LOG_TAB, RUN_LOG_HEADER)
+    log_tab, log_values = get_tab(spreadsheet, RUN_LOG_TAB, RUN_LOG_HEADER, older_headers=[OLD_RUN_LOG_HEADER])
     if started_by == "schedule":
         if runs_logged_today(log_values, now.date()):
             print(f"Fallback skipped: the extension already started a run today ({now:%Y-%m-%d} IST).")

@@ -25,17 +25,17 @@ class HeaderError(Exception):
     pass
 
 
-def get_tab(spreadsheet, name, header):
-    """(worksheet, values). Writes the header into a new or empty tab. Refuses to go on when
-    row 1 is something else: rows are written by position, so a missing / moved header would
-    put values into the wrong rows."""
+def get_tab(spreadsheet, name, header, older_headers=()):
+    """(worksheet, values). Writes the header into a new or empty tab (or over an older
+    version of it). Refuses to go on when row 1 is something else: rows are written by
+    position, so a missing / moved header would put values into the wrong rows."""
     try:
         tab = spreadsheet.worksheet(name)
     except gspread.exceptions.WorksheetNotFound:
         tab = spreadsheet.add_worksheet(title=name, rows=200, cols=len(header))
     values = tab.get_all_values()
     first = values[0] if values else []
-    if not any(cell.strip() for cell in first):
+    if not any(cell.strip() for cell in first) or any(first[:len(old)] == list(old) for old in older_headers):
         tab.update([header], "A1")
         tab.freeze(rows=1)
         values = [header] + values[1:]
@@ -140,7 +140,8 @@ def merge_events(spreadsheet, events, now, dry_run=False):
         # Rows are updated by position: if another writer (the extension, or a person sorting /
         # deleting rows) changed those rows since they were read, merge again on a fresh copy
         check = _rows(tab.get_all_values())
-        if len(check) < original or any(check[i] != snapshot[i] for i in touched):
+        # Rows appended by another writer meanwhile are merged on the next attempt (no duplicates)
+        if len(check) != original or any(check[i] != snapshot[i] for i in touched):
             continue
         updates = [{"range": f"A{i + 2}:J{i + 2}", "values": [index.rows[i]]} for i in sorted(touched)]
         if updates:
