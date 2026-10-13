@@ -2,8 +2,8 @@
 
 Used for event-site listings, news articles and (mirrored in the Chrome extension)
 LinkedIn / X / Reddit posts:
-  - is_event_topic(text): funding events, investor meets, demo days, pitch events,
-    startup-investor networking, accelerator / government startup events
+  - is_event_topic(text): investor events only: investor meets, demo days, pitch days / nights,
+    founders-meet-investors events (general startup summits and networking don't count)
   - india_signal(text) / find_city(text): India-only filter and the City / Online cell
   - find_event_date(text, ref): the first upcoming date mentioned in the text
 """
@@ -13,38 +13,28 @@ from urllib.parse import parse_qsl, urlsplit
 
 # ---------------------------------------------------------------- topic
 
-# Phrases that on their own mark an investment event
+# Investor events only: the event's main purpose is founders meeting or pitching to investors
+# (investor meets, pitch days, demo days). General startup summits, conferences, workshops and
+# networking events don't count. Mirrors EVENT_DIRECT in the extension's lib/rules.js.
 _DIRECT = re.compile(
-    r"\b(investors?[\s-]+(?:meet|meetup|meet-up|connect|day|summit|conclave|networking|mixer|forum|roundtable)|"
-    r"demo[\s-]?days?|pitch(?:ing)?[\s-]+(?:day|night|event|session|fest|competition|battle|summit|cafe|deck clinic)|"
-    r"startup pitch|reverse pitch|office hours|fundrais(?:e|ing)[\s-]+(?:workshop|bootcamp|masterclass|summit|session)|"
-    r"funding[\s-]+(?:summit|conclave|connect|fair|meet|event|roadshow)|angel[\s-]+(?:investors?[\s-]+)?(?:meet|summit|network meet)|"
-    r"vc[\s-]+(?:meet|connect|summit|networking|mixer)|venture capital (?:summit|conclave|forum)|"
-    r"e-?summit|tiecon|startup mahakumbh|startup india (?:summit|roadshow|innovation week|event)|"
-    r"founders?[\s-]+(?:and|&|x|meet)[\s-]+investors?|investors?[\s-]+(?:and|&|x)[\s-]+founders?)\b",
+    r"\b(investors?[\s-]+(?:meet|meetup|meet-up|connect|day|summit|conclave|networking|mixer|forum|roundtable|pitch|pitch\s+room|speed\s+dating|office\s+hours)|"
+    r"demo[\s-]?days?|pitch(?:ing)?[\s-]+(?:day|night|event|session|fest|competition|battle|cafe|evening|room)|startup\s+pitch(?:ing)?|reverse\s+pitch|"
+    r"(?:vc|investor|angel)s?\s+office\s+hours|fundrais(?:e|ing)[\s-]+(?:summit|connect|meet)|"
+    r"funding[\s-]+(?:summit|conclave|connect|fair|meet|roadshow)|angel[\s-]+(?:investors?[\s-]+)?(?:meet|summit|network\s+meet|pitch)|"
+    r"vc[\s-]+(?:meet|connect|summit|networking|mixer|pitch)|venture\s+capital\s+(?:summit|conclave|forum)|"
+    r"founders?[\s-]+(?:and|&|x|meet|meets)[\s-]+(?:investors?|vcs?|angels?)|investors?[\s-]+(?:and|&|x)[\s-]+founders?|"
+    r"meet\s+(?:the\s+|top\s+|leading\s+|active\s+)?(?:angel\s+)?(?:investors|vcs|angels)|"
+    r"pitch(?:ing)?\s+(?:to|in\s+front\s+of|before)\s+(?:a\s+panel\s+of\s+)?(?:\d+\+?\s+)?(?:top\s+|leading\s+)?(?:investors|vcs|angels)|"
+    r"(?:investors|vcs|angels)\s+(?:will\s+be|are)\s+(?:present|attending|in\s+the\s+room|on\s+the\s+panel))\b",
     re.I,
 )
-# Money words and event nouns only count together. Generic words such as "connect",
-# "meet", "session" alone or "pitch" / "capital" are left out: they appear in ordinary text.
-_MONEY = re.compile(
-    r"\b(invest(?:or|ors|ment|ments|ing)?|angels?|vcs?|venture capital(?:ists?)?|funding|fundrais(?:e|ing)|"
-    r"pre-seed|seed fund|accelerators?|incubators?|grants?)\b",
-    re.I,
-)
+# Used to find where the event is mentioned (for its city)
 _EVENT_NOUN = re.compile(
     r"\b(meetup|meet-up|summit|conclave|conference|event|mixer|networking|webinar|workshop|masterclass|"
     r"expo|fest|festival|bootcamp|boot camp|roadshow|road show|forum|huddle|roundtable|round table|"
     r"symposium|showcase|convention|breakfast|brunch|open house|info session|cohort day)\b",
     re.I,
 )
-_STARTUP = re.compile(r"\b(start-?ups?|founders?|entrepreneurs?)\b", re.I)
-_STARTUP_EVENT = re.compile(
-    r"\b(networking|mixer|meetup|meet-up|summit|conclave|expo|showcase|bootcamp|roadshow|fest|"
-    r"office hours|open house)\b",
-    re.I,
-)
-# Stock-market, jobs and property events. Phrases, not single words: "share", "options",
-# "listed" or "hiring" alone appear in normal startup text ("Excited to share ...").
 _EXCLUDE = re.compile(
     r"\b(share price|shares? of|stock (?:market|price|split)s?|stocks? to (?:buy|watch)|nse|bse|sensex|nifty|"
     r"ipo (?:subscription|allotment|gmp|listing|price band|opens|closes)|listing gains|earnings call|"
@@ -60,11 +50,7 @@ _EXCLUDE = re.compile(
 def is_event_topic(text):
     if not text or _EXCLUDE.search(text):
         return False
-    if _DIRECT.search(text):
-        return True
-    if _MONEY.search(text) and _EVENT_NOUN.search(text):
-        return True
-    return bool(_STARTUP.search(text) and _STARTUP_EVENT.search(text))
+    return bool(_DIRECT.search(text))
 
 
 # ---------------------------------------------------------------- India / city
@@ -161,7 +147,8 @@ def find_city(text):
 
 def event_index(text):
     """Index of the first event phrase in the text (to find the event's city), else -1."""
-    for pattern in (_DIRECT, _EVENT_NOUN, _STARTUP_EVENT):
+    # The event word ("summit in Dubai") places the event better than a phrase like "pitch to investors"
+    for pattern in (_EVENT_NOUN, _DIRECT):
         match = pattern.search(text or "")
         if match:
             return match.start()

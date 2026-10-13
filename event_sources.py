@@ -59,7 +59,7 @@ def get(session, url, attempts=2, timeout=20, **kwargs):
 
 LUMA_CITIES = ["bengaluru", "mumbai", "delhi", "hyderabad", "pune", "chennai", "kolkata", "ahmedabad", "jaipur"]
 MEETUP_CITIES = ["Bangalore", "Mumbai", "New Delhi", "Hyderabad", "Pune", "Chennai", "Kolkata", "Ahmedabad", "Gurgaon", "Noida"]
-MEETUP_KEYWORDS = ["startup investors", "angel investors", "startup pitch", "founders networking", "venture capital"]
+MEETUP_KEYWORDS = ["startup investors", "angel investors", "startup pitch", "pitch night", "demo day", "venture capital"]
 ALLEVENTS_CITIES = ["bangalore", "mumbai", "delhi", "hyderabad", "pune", "chennai", "kolkata", "ahmedabad", "gurgaon", "noida"]
 ALLEVENTS_CATEGORIES = ["startup", "business"]
 
@@ -67,18 +67,13 @@ ALLEVENTS_CATEGORIES = ["startup", "business"]
 GOOGLE_NEWS_EVENT_QUERIES = [
     '"investor meet" startups India',
     '"demo day" startups India',
-    '("pitch event" OR "pitching session" OR "pitch day") startups India',
-    '"startup summit" investors India',
-    '"angel investors" (summit OR meet OR networking) India',
-    '"venture capital" (summit OR conclave) India',
+    '("pitch event" OR "pitch day" OR "pitch night") startups India',
+    '"angel investors" (meet OR pitch) India',
     '(accelerator OR incubator) "demo day" India',
-    '("startup conclave" OR "startup expo" OR "startup mahakumbh") India',
     '"investor connect" startups India',
-    '"Startup India" (summit OR roadshow OR event)',
-    '"funding" roadshow startups India',
-    '("e-summit" OR "esummit") startups',
-    '(TiEcon OR "TiE Global Summit" OR "TiE summit")',
-    '"founders" "investors" networking event India',
+    '"pitch to investors" startups India',
+    '"meet investors" startups India',
+    '"founders and investors" (meet OR mixer) India',
 ]
 
 # India-focused news sources from the funding-news script, scanned for event articles

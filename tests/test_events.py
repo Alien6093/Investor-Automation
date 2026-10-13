@@ -16,9 +16,22 @@ class TopicTests(unittest.TestCase):
             "eChai Startup Demo Day in Bengaluru",
             "Angel investors meet for early-stage startups, Pune",
             "Pune Founders Conclave | The Pitch Room",
-            "Startup India roadshow in Guwahati",
+            "Pitch to 30+ investors at our Demo Day",
+            "Meet angel investors in Delhi | In person",
+            "VC office hours for pre-seed founders, Bengaluru",
         ]:
             self.assertTrue(is_event_topic(text), text)
+
+    def test_general_startup_events(self):
+        # Only events whose main purpose is founders meeting / pitching to investors count
+        for text in [
+            "Startup India roadshow in Guwahati",
+            "Startup Summit 2026, Bengaluru: 5000 founders, 100 speakers",
+            "E-Summit 2026 at IIT Bombay",
+            "Founders networking mixer in Gurugram this Friday",
+            "Fundraising workshop for first-time founders",
+        ]:
+            self.assertFalse(is_event_topic(text), text)
 
     def test_noise(self):
         for text in [
