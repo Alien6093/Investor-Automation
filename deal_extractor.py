@@ -9,7 +9,7 @@ import re
 from investor_extractor import extract_investors, _clean, _key, _SPLIT, _STOP
 
 AMOUNT = re.compile(
-    r"(?:(?:rs\.?|inr|usd|us\$|s\$|\$|₹|€|£)\s?\d[\d,]*(?:\.\d+)?\s?(?:mln|bln|mn|million|cr|crore|bn|billion|lakh|k|m|b)?\b"
+    r"(?:(?:rs\.?|inr|usd|us\$|s\$|\$|₹|€|£)\s?\d[\d,]*(?:\.\d+)?\s?(?:mln|bln|mil|mn|million|cr|crore|bn|billion|lakh|k|m|b)?\b"
     r"|\b\d[\d,]*(?:\.\d+)?\s?(?:mln|bln|mn|million|cr|crore|bn|billion|lakh)\s?(?:usd|dollars|rupees|inr)?\b)",
     re.I,
 )
@@ -55,11 +55,23 @@ def extract_company(title):
         company = re.sub(r"^[^\w]+", "", company)                      # leading emoji / symbols
         company = company.rsplit(": ", 1)[-1]                           # "BREAKING: X", "Forget the feed: X"
         company = re.sub(r"^.*-backed\s+", "", company, flags=re.I)     # "Prime Focus-backed Brahma AI"
+        company = re.sub(r"^[\w.-]+-based\s+", "", company, flags=re.I)  # "Paris-based Rayon"
+        company = re.sub(r"^[A-Z][a-z]+[’']s\s+(?=[A-Z0-9])", "", company)  # "Germany’s Reverion"
         company = re.sub(r"(?:\s+(?:has|have|just|officially|finally|also|today|now))+$", "", company, flags=re.I)
         company = _DESCRIPTOR.sub("", company)
-        if re.match(r"(?i)(?:we|i|our|my|they|he|she|it|this|just|big|excited|exciting|thrilled|proud|so)\b", company):
+        if re.match(r"(?i)(?:we|i|our|my|they|he|she|it|this|just|big|excited|exciting|thrilled|proud|so|"
+                    r"why|how|what|when|where|who|should|can|could|is|are|will|would|does|do|here)\b", company):
             continue
         company = re.sub(r"[’']s$", "", company).strip(" ,-'\"‘’“”")
+        company = re.sub(r"^.*\b(?:exec|executive|founder|co-?founder|ceo|cto|alum|alumni)s?\s+(?=[A-Z])", "", company)
+        # Sentence fragments from posts ("Between people being", "Flights are booked and")
+        lowercase = [w for w in company.split()[1:] if w[:1].islower() and w not in ("and", "of", "the", "&", "for")]
+        if len(lowercase) >= 2 or re.match(r"(?i)(?:between|after|before|during|since|when|while|if|as|at|"
+                                           r"for|from|in|on|to|with|top|best|flights?)\b", company):
+            continue
+        # A bare description ("short-video app") is not a company name
+        if re.fullmatch(r"[a-z0-9 -]+\s(?:app|platform|startup|company|brand|firm|player)s?", company):
+            continue
         if (company and len(company.split()) <= 6 and re.search(r"[A-Za-z]", company)
                 and not AMOUNT.search(company)):
             return company
